@@ -66,10 +66,11 @@ class AircraftState:
   
           
   def get_wing_load(self) -> float:
-    return self.weight / self.adc.characteristics.wing_area * 10.0
+    return round(self.weight / self.adc.characteristics.wing_area * 10.0, 1)
   
   def get_safe_load(self) -> float:
-    return self.adc.stores.combat_weight / self.weight * self.adc.characteristics.combat_safe_load
+    safe_load = self.adc.stores.combat_weight / self.weight * self.adc.characteristics.combat_safe_load
+    return round(safe_load, 1)
 
   def get_keas(self) -> float:
     return round(self.ktas / math.exp(0.003358 * self.altitude))
