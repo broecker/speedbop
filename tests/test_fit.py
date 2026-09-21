@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
 
+from e6b import fit as fit_module
 from e6b.fit import fit_power_law, fit_shifted_power_window, load_samples, validate
 
 
@@ -188,3 +189,55 @@ def test_smash_is_an_exact_ratio_with_no_physical_meaning():
     assert result.ratio_exponents["wl"] == pytest.approx(-1.0, abs=1e-6)
     assert result.ratio_exponents["q"] == pytest.approx(1.0, abs=1e-6)
     assert result.predict(wl=40, q=100) == pytest.approx(25.0, abs=1e-6)
+
+
+def test_keas_from_mach_and_alt_pinned_to_mach_exponent_one():
+    # keas = mach * a(alt), where a(alt) is an "effective speed of sound"
+    # that decays with altitude -- keas is proportional to mach exactly
+    # (a structural fact: EAS depends on Mach and pressure altitude only,
+    # never on Mach itself as a free exponent), confirmed by real readings
+    # at alt=24/24.5/25 all giving keas/mach == 600 regardless of mach.
+    # The true atmosphere's barometric power law doesn't fit this data at
+    # all (errors exceed 100% at high altitude) -- like ktas/keas, the
+    # game approximates it with a plain exponential decay instead.
+    samples = load_samples("e6b/mach.csv")
+
+    general = fit_power_law(samples, output_key="keas", linear_keys={"alt"})
+    pinned = fit_power_law(
+        samples, output_key="keas", linear_keys={"alt"}, fixed_ratio_exponents={"mach": 1.0}
+    )
+
+    assert general.ratio_exponents["mach"] == pytest.approx(1.0, abs=0.02)
+    assert pinned.ratio_exponents["mach"] == 1.0
+    assert pinned.r_squared > 0.999
+    assert pinned.k == pytest.approx(674.573, abs=0.01)
+    assert pinned.linear_coefficients["alt"] == pytest.approx(-0.0044558, abs=1e-6)
+
+    rows = validate(pinned, samples, output_key="keas")
+    assert all(row["rel_error"] < 0.05 for row in rows)
+
+
+def test_cli_fixed_exponent_flag(capsys, monkeypatch):
+    monkeypatch.setattr(
+        "sys.argv",
+        ["fit.py", "e6b/mach.csv", "--output", "keas", "--linear", "alt",
+         "--fixed-exponent", "mach=1"],
+    )
+
+    fit_module.main()
+
+    out = capsys.readouterr().out
+    assert "mach^1.0000" in out
+    assert "R^2 = 0.999017" in out
+
+
+def test_cli_fixed_exponent_rejects_malformed_value(capsys, monkeypatch):
+    monkeypatch.setattr(
+        "sys.argv",
+        ["fit.py", "e6b/mach.csv", "--output", "keas", "--fixed-exponent", "mach"],
+    )
+
+    with pytest.raises(SystemExit):
+        fit_module.main()
+
+    assert "NAME=VALUE" in capsys.readouterr().err

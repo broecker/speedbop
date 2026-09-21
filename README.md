@@ -125,3 +125,23 @@ outlier -- off by -78% while every other row matched to floating-point
 precision -- and was dropped rather than "corrected" to the formula's
 predicted value, so this file contains only real device readings.
 
+### Pinning from the CLI
+
+`--fixed-exponent NAME=VALUE` (repeatable) and `--fixed-k VALUE` expose the
+same pinning as `fixed_ratio_exponents`/`fixed_k` above, without needing a
+Python script. `e6b/mach.csv` is real KEAS/altitude/Mach data -- KEAS is
+proportional to Mach exactly (EAS depends on Mach and pressure altitude
+only, confirmed by three separate altitude readings near 24-25 all giving
+`keas/mach == 600` regardless of Mach), so the Mach exponent is pinned to
+1 and only the altitude decay constant and `k` are fit:
+
+```
+python3 -m e6b.fit e6b/mach.csv --output keas --linear alt --fixed-exponent mach=1
+# keas = 674.573 * mach^1 * exp(-0.0045*alt), R^2 = 0.999
+```
+
+The real atmosphere's barometric power law doesn't fit this data at all
+(errors exceed 100% at high altitude) -- like the KTAS/KEAS relationship,
+the game approximates it with a plain exponential decay instead of the
+true physics formula.
+

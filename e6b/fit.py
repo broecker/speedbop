@@ -340,9 +340,32 @@ def main() -> None:
              "exp(c * sign(x-offset) * |x-offset|^n) via nonlinear least squares "
              "instead of the closed-form --linear model. Mutually exclusive with --linear.",
     )
+    parser.add_argument(
+        "--fixed-exponent", nargs="*", default=[],
+        help="pin a ratio input's exponent to a known value instead of fitting it, "
+             "as NAME=VALUE (e.g. --fixed-exponent keas=2); use when a boundary "
+             "condition or physical law proves the true exponent, so the regression "
+             "doesn't spend that degree of freedom absorbing noise from elsewhere. "
+             "Not compatible with --window.",
+    )
+    parser.add_argument(
+        "--fixed-k", type=float,
+        help="pin the leading constant k to a known value instead of fitting it "
+             "(e.g. 1, when two quantities are defined to be equal at some "
+             "reference point). Not compatible with --window.",
+    )
     args = parser.parse_args()
     if args.window and args.linear:
         parser.error("--window and --linear are mutually exclusive")
+    if args.window and (args.fixed_exponent or args.fixed_k is not None):
+        parser.error("--window is not compatible with --fixed-exponent/--fixed-k")
+
+    fixed_ratio_exponents = {}
+    for item in args.fixed_exponent:
+        name, sep, value = item.partition("=")
+        if not sep:
+            parser.error(f"--fixed-exponent expects NAME=VALUE, got {item!r}")
+        fixed_ratio_exponents[name] = float(value)
 
     samples = load_samples(args.csv_path)
     if args.holdout:
@@ -353,7 +376,11 @@ def main() -> None:
     if args.window:
         result = fit_shifted_power_window(fit_samples, args.output, args.window)
     else:
-        result = fit_power_law(fit_samples, args.output, linear_keys=set(args.linear))
+        result = fit_power_law(
+            fit_samples, args.output, linear_keys=set(args.linear),
+            fixed_ratio_exponents=fixed_ratio_exponents or None,
+            fixed_k=args.fixed_k,
+        )
     print(f"fitted on {result.n_samples} samples")
     print(result.formula_str(args.output))
     print(f"R^2 = {result.r_squared:.6f}")
