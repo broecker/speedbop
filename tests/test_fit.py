@@ -19,8 +19,8 @@ def test_recovers_exact_time_speed_distance_ratio():
 
     assert result.r_squared == pytest.approx(1.0, abs=1e-9)
     assert result.k == pytest.approx(1.0, abs=1e-6)
-    assert result.exponents["distance"] == pytest.approx(1.0, abs=1e-6)
-    assert result.exponents["speed"] == pytest.approx(-1.0, abs=1e-6)
+    assert result.ratio_exponents["distance"] == pytest.approx(1.0, abs=1e-6)
+    assert result.ratio_exponents["speed"] == pytest.approx(-1.0, abs=1e-6)
 
 
 def test_validate_reports_zero_error_for_exact_fit():
@@ -57,3 +57,27 @@ def test_rejects_non_positive_values_instead_of_hanging(bad_value):
 
     with pytest.raises(ValueError, match="strictly positive"):
         fit_power_law(samples, output_key="time")
+
+
+def test_fits_window_set_variable_including_zero():
+    # A window-set input (e.g. altitude dialed into a ring-offset window)
+    # multiplies by exp(c * value) rather than value ** p, and must accept
+    # 0 -- dialing altitude to 0 just means "no correction applied", which
+    # would previously have failed validation as a power-law input.
+    rng = np.random.default_rng(1)
+    cas = rng.uniform(80, 250, size=10)
+    altitude_thousands = rng.uniform(0, 25, size=10)
+    c = 0.018
+    samples = [
+        {"cas": v, "altitude_thousands": a, "tas": v * np.exp(c * a)}
+        for v, a in zip(cas, altitude_thousands)
+    ]
+    samples[0] = {"cas": 120.0, "altitude_thousands": 0.0, "tas": 120.0}
+
+    result = fit_power_law(samples, output_key="tas", linear_keys={"altitude_thousands"})
+
+    assert result.r_squared == pytest.approx(1.0, abs=1e-9)
+    assert result.k == pytest.approx(1.0, abs=1e-6)
+    assert result.ratio_exponents["cas"] == pytest.approx(1.0, abs=1e-6)
+    assert result.linear_coefficients["altitude_thousands"] == pytest.approx(c, abs=1e-6)
+    assert result.predict(cas=100, altitude_thousands=0) == pytest.approx(100.0, abs=1e-6)
