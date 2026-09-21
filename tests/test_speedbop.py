@@ -6,7 +6,15 @@ import pathlib
 import pytest
 
 import speedbop
-from speedbop import AircraftDataCard, AircraftState, _dataclass_from_dict
+from speedbop import (
+    AircraftDataCard,
+    AircraftState,
+    _dataclass_from_dict,
+    keas_from_q,
+    ktas_from_keas,
+    ktas_from_q,
+    q_from_smash,
+)
 
 REPO_ROOT = pathlib.Path(__file__).parent.parent
 REAL_ADC_PATH = REPO_ROOT / "adc" / "fj-3m.json"
@@ -270,6 +278,57 @@ def test_aircraft_state_against_real_fixture():
     assert state.get_smash() == pytest.approx(round(10.0 * expected_q / 58.0, 1))
     assert state.get_speed() == 7
     assert state.get_mach() == pytest.approx(0.5)
+
+
+# ---------------------------------------------------------------------------
+# Inverse helpers
+# ---------------------------------------------------------------------------
+
+def test_q_from_smash_inverts_the_smash_formula():
+    # smash = 10 * q / wl  =>  q = smash * wl / 10
+    assert q_from_smash(smash=10.0, wl=5.0) == pytest.approx(5.0)
+
+
+def test_keas_from_q_inverts_the_q_formula():
+    # q = keas^2 / 2950
+    assert keas_from_q(q=100**2 / 2950) == pytest.approx(100.0)
+
+
+def test_ktas_from_keas_is_identity_at_sea_level():
+    # keas == ktas at altitude 0 by definition, same boundary condition
+    # get_keas() and e6b/samples/keas.csv were built around.
+    assert ktas_from_keas(keas=123.0, altitude=0) == pytest.approx(123.0)
+
+
+def test_ktas_from_keas_inverts_get_keas_formula():
+    # get_keas(): keas = round(ktas / exp(0.003358*altitude))
+    assert ktas_from_keas(keas=200.0, altitude=75) == pytest.approx(
+        200.0 * math.exp(0.003358 * 75)
+    )
+
+
+def test_ktas_from_q_chains_keas_from_q_and_ktas_from_keas():
+    q, altitude = 16.7, 75
+    assert ktas_from_q(q, altitude) == pytest.approx(
+        ktas_from_keas(keas_from_q(q), altitude)
+    )
+
+
+def test_inverse_helpers_round_trip_the_real_fixture_within_rounding_error():
+    # get_q()/get_smash() round to 1 decimal, so inverting a rounded
+    # reading recovers the original value only approximately -- this
+    # documents how much error that rounding introduces, not exact
+    # equality.
+    adc = AircraftDataCard.from_json(REAL_ADC_PATH)
+    state = _make_state(adc=adc, weight=17.4, ktas=285.0, altitude=75)
+
+    q = state.get_q()
+    smash = state.get_smash()
+    wing_load = state.get_wing_load()
+
+    assert q_from_smash(smash, wing_load) == pytest.approx(q, abs=0.2)
+    assert keas_from_q(q) == pytest.approx(state.get_keas(), abs=1.0)
+    assert ktas_from_q(q, state.altitude) == pytest.approx(state.ktas, rel=0.02)
 
 
 # ---------------------------------------------------------------------------
