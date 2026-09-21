@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from e6b.fit import fit_power_law, fit_shifted_power_window, validate
+from e6b.fit import fit_power_law, fit_shifted_power_window, load_samples, validate
 
 
 def test_recovers_exact_time_speed_distance_ratio():
@@ -145,3 +145,24 @@ def test_pinning_rejects_key_marked_both_linear_and_fixed():
 
     with pytest.raises(ValueError, match="can't be both linear and a fixed ratio exponent"):
         fit_power_law(samples, output_key="y", linear_keys={"a"}, fixed_ratio_exponents={"a": 1.0})
+
+
+def test_q_is_dynamic_pressure_pinned_to_keas_squared():
+    # q (dynamic pressure) is physically defined as q = 0.5*rho*V^2, so it
+    # must scale as keas^2 exactly -- not just approximately fit one. Real
+    # data from e6b/q.csv: pinning p=2 and fitting only k should match the
+    # data about as well as letting p float (it does, R^2 barely changes),
+    # while guaranteeing the physically-required exponent instead of
+    # trusting the regression to land near 2 by coincidence.
+    samples = load_samples("e6b/q.csv")
+
+    general = fit_power_law(samples, output_key="q")
+    pinned = fit_power_law(samples, output_key="q", fixed_ratio_exponents={"keas": 2.0})
+
+    assert general.ratio_exponents["keas"] == pytest.approx(2.0, abs=0.05)
+    assert pinned.ratio_exponents["keas"] == 2.0
+    assert pinned.r_squared > 0.999
+    # every reading except the smallest (keas=52, q=1 -- a rounded-to-the-
+    # nearest-integer reading at very low magnitude) is within ~1.5%
+    rows = validate(pinned, [s for s in samples if s["keas"] != 52], output_key="q")
+    assert all(row["rel_error"] < 0.02 for row in rows)

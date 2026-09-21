@@ -90,3 +90,15 @@ result = fit_power_law(
 # ktas = keas * exp(c * altitude), with c the only thing actually fit
 ```
 
+A pinned exponent doesn't need a matching `fixed_k` if only the exponent
+(not the constant) is physically known. `e6b/q.csv` is real dynamic
+pressure data (`q`) against `keas`: physically, `q = 0.5*rho*V^2`, so the
+`keas` exponent must be exactly 2, not just close to it:
+
+```python
+samples = load_samples("e6b/q.csv")
+result = fit_power_law(samples, output_key="q", fixed_ratio_exponents={"keas": 2.0})
+# q = k * keas^2, with k the only thing actually fit -- R^2 > 0.999,
+# every point within ~1.5% except the smallest (a rounded integer reading)
+```
+
