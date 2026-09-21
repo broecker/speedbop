@@ -94,7 +94,12 @@ class AircraftState:
   
   def get_smash(self) -> float:
     return round(10.0 * self.get_q() / self.get_wing_load(), 1)
-    
+
+  def get_mach(self) -> float:
+    keas = self.get_keas()
+    # keas = 674.573 * mach * exp(-0.0044558 * altitude); empirically determined.
+    return round(keas * math.exp(0.0044558 * self.altitude) / 674.573, 1)
+
   def get_speed(self) -> int:
     """Returns the speed in FP."""
     if self.ktas < 60:
@@ -116,6 +121,27 @@ class AircraftState:
     max_load = self.adc.lift.alpha_max / self.get_lcs() * self.get_smash()
     # We don't want to exceed our max load ever, hence we round down.
     return math.floor(max_load)
+
+# Inverse helpers -- going from a derived value back to the inputs that
+# would have produced it, e.g. when a known smash/q/mach reading needs to
+# be converted back into ktas for the next turn's calculation.
+
+def q_from_smash(smash: float, wl: float) -> float:
+  """Inverse of AircraftState.get_smash(): smash = 10 * q / wl."""
+  return smash * wl / 10.0
+
+def keas_from_q(q: float) -> float:
+  """Inverse of AircraftState.get_q(): q = keas^2 / 2950."""
+  return math.sqrt(q * 2950)
+
+def ktas_from_keas(keas: float, altitude: float) -> float:
+  """Inverse of AircraftState.get_keas(): keas = ktas / exp(0.003358*altitude)."""
+  return keas * math.exp(0.003358 * altitude)
+
+def ktas_from_q(q: float, altitude: float) -> float:
+  """Chains keas_from_q and ktas_from_keas."""
+  return ktas_from_keas(keas_from_q(q), altitude)
+
 
 def main() -> None:
   adc = AircraftDataCard.from_json(pathlib.Path("adc/fj-3m.json")) 

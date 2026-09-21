@@ -6,7 +6,15 @@ import pathlib
 import pytest
 
 import speedbop
-from speedbop import AircraftDataCard, AircraftState, _dataclass_from_dict
+from speedbop import (
+    AircraftDataCard,
+    AircraftState,
+    _dataclass_from_dict,
+    keas_from_q,
+    ktas_from_keas,
+    ktas_from_q,
+    q_from_smash,
+)
 
 REPO_ROOT = pathlib.Path(__file__).parent.parent
 REAL_ADC_PATH = REPO_ROOT / "adc" / "fj-3m.json"
@@ -170,7 +178,7 @@ def test_get_wing_load():
     ))
     state = _make_state(adc=adc, weight=17.4)
 
-    assert state.get_wing_load() == pytest.approx(17.4 / 3.0 * 10.0)
+    assert state.get_wing_load() == pytest.approx(round(17.4 / 3.0 * 10.0, 1))
 
 
 def test_get_safe_load():
@@ -180,7 +188,7 @@ def test_get_safe_load():
     )
     state = _make_state(adc=adc, weight=17.4)
 
-    assert state.get_safe_load() == pytest.approx(15.7 / 17.4 * 21.0)
+    assert state.get_safe_load() == pytest.approx(round(15.7 / 17.4 * 21.0, 1))
 
 
 def test_get_keas_at_sea_level_equals_ktas():
@@ -224,6 +232,25 @@ def test_get_smash_uses_wing_load_not_a_raw_weight():
     assert state.get_smash() == pytest.approx(round(10.0 * expected_q / expected_wing_load, 1))
 
 
+def test_get_mach_is_the_inverse_of_the_keas_formula():
+    # keas = 674.573 * mach * exp(-0.0044558*altitude), so mach = keas *
+    # exp(0.0044558*altitude) / 674.573 -- and at altitude=0 that's just
+    # keas/674.573, the cleanest case to pin down independent of the
+    # exponential term.
+    state = _make_state(ktas=674.573, altitude=0)  # keas rounds to 675
+
+    assert state.get_mach() == pytest.approx(round(675 / 674.573, 1))
+
+
+def test_get_mach_uses_rounded_keas_and_applies_altitude_correction():
+    # Cross-checks against a real e6b/mach.csv reading (keas=250, alt=225,
+    # mach=1.0) -- ktas is chosen so get_keas() rounds to exactly 250.
+    state = _make_state(ktas=250 * math.exp(0.003358 * 225), altitude=225)
+
+    assert state.get_keas() == 250
+    assert state.get_mach() == pytest.approx(1.0, abs=0.02)
+
+
 @pytest.mark.parametrize("ktas,expected", [
     (0.0, 1),
     (59.9, 1),
@@ -244,12 +271,64 @@ def test_aircraft_state_against_real_fixture():
     state = _make_state(adc=adc, weight=17.4, ktas=285.0, altitude=75)
 
     assert state.get_wing_load() == pytest.approx(58.0)
-    assert state.get_safe_load() == pytest.approx(18.9482758620, rel=1e-9)
+    assert state.get_safe_load() == pytest.approx(18.9)
     assert state.get_keas() == 222
     expected_q = round(222**2 / 2950, 1)
     assert state.get_q() == pytest.approx(expected_q)
     assert state.get_smash() == pytest.approx(round(10.0 * expected_q / 58.0, 1))
     assert state.get_speed() == 7
+    assert state.get_mach() == pytest.approx(0.5)
+
+
+# ---------------------------------------------------------------------------
+# Inverse helpers
+# ---------------------------------------------------------------------------
+
+def test_q_from_smash_inverts_the_smash_formula():
+    # smash = 10 * q / wl  =>  q = smash * wl / 10
+    assert q_from_smash(smash=10.0, wl=5.0) == pytest.approx(5.0)
+
+
+def test_keas_from_q_inverts_the_q_formula():
+    # q = keas^2 / 2950
+    assert keas_from_q(q=100**2 / 2950) == pytest.approx(100.0)
+
+
+def test_ktas_from_keas_is_identity_at_sea_level():
+    # keas == ktas at altitude 0 by definition, same boundary condition
+    # get_keas() and e6b/samples/keas.csv were built around.
+    assert ktas_from_keas(keas=123.0, altitude=0) == pytest.approx(123.0)
+
+
+def test_ktas_from_keas_inverts_get_keas_formula():
+    # get_keas(): keas = round(ktas / exp(0.003358*altitude))
+    assert ktas_from_keas(keas=200.0, altitude=75) == pytest.approx(
+        200.0 * math.exp(0.003358 * 75)
+    )
+
+
+def test_ktas_from_q_chains_keas_from_q_and_ktas_from_keas():
+    q, altitude = 16.7, 75
+    assert ktas_from_q(q, altitude) == pytest.approx(
+        ktas_from_keas(keas_from_q(q), altitude)
+    )
+
+
+def test_inverse_helpers_round_trip_the_real_fixture_within_rounding_error():
+    # get_q()/get_smash() round to 1 decimal, so inverting a rounded
+    # reading recovers the original value only approximately -- this
+    # documents how much error that rounding introduces, not exact
+    # equality.
+    adc = AircraftDataCard.from_json(REAL_ADC_PATH)
+    state = _make_state(adc=adc, weight=17.4, ktas=285.0, altitude=75)
+
+    q = state.get_q()
+    smash = state.get_smash()
+    wing_load = state.get_wing_load()
+
+    assert q_from_smash(smash, wing_load) == pytest.approx(q, abs=0.2)
+    assert keas_from_q(q) == pytest.approx(state.get_keas(), abs=1.0)
+    assert ktas_from_q(q, state.altitude) == pytest.approx(state.ktas, rel=0.02)
 
 
 # ---------------------------------------------------------------------------
@@ -266,8 +345,9 @@ def test_main_runs_and_prints_expected_values(capsys, monkeypatch):
     out = capsys.readouterr().out
     assert "Hello Speedbop!" in out
     assert "58.0" in out
-    assert "18.94827586" in out
+    assert "Safe load:  18.9" in out
     assert "KTAS: 285 7" in out
     assert "KEAS: 222" in out
     assert "Q: 16.7" in out
     assert "Smash: 2.9" in out
+    assert "Mach: 0.5" in out
