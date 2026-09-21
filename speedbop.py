@@ -15,7 +15,6 @@ def _dataclass_from_dict(klass, d):
     fieldtypes = {f.name:f.type for f in dataclasses.fields(klass)}
     return klass(**{f:_dataclass_from_dict(fieldtypes[f],d[f]) for f in d})
   except:
-    print('Not a dataclass field:', d)
     return d # Not a dataclass field
   
   
