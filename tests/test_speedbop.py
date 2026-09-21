@@ -170,7 +170,7 @@ def test_get_wing_load():
     ))
     state = _make_state(adc=adc, weight=17.4)
 
-    assert state.get_wing_load() == pytest.approx(17.4 / 3.0 * 10.0)
+    assert state.get_wing_load() == pytest.approx(round(17.4 / 3.0 * 10.0, 1))
 
 
 def test_get_safe_load():
@@ -180,7 +180,7 @@ def test_get_safe_load():
     )
     state = _make_state(adc=adc, weight=17.4)
 
-    assert state.get_safe_load() == pytest.approx(15.7 / 17.4 * 21.0)
+    assert state.get_safe_load() == pytest.approx(round(15.7 / 17.4 * 21.0, 1))
 
 
 def test_get_keas_at_sea_level_equals_ktas():
@@ -244,7 +244,7 @@ def test_aircraft_state_against_real_fixture():
     state = _make_state(adc=adc, weight=17.4, ktas=285.0, altitude=75)
 
     assert state.get_wing_load() == pytest.approx(58.0)
-    assert state.get_safe_load() == pytest.approx(18.9482758620, rel=1e-9)
+    assert state.get_safe_load() == pytest.approx(18.9)
     assert state.get_keas() == 222
     expected_q = round(222**2 / 2950, 1)
     assert state.get_q() == pytest.approx(expected_q)
@@ -266,7 +266,7 @@ def test_main_runs_and_prints_expected_values(capsys, monkeypatch):
     out = capsys.readouterr().out
     assert "Hello Speedbop!" in out
     assert "58.0" in out
-    assert "18.94827586" in out
+    assert "Safe load:  18.9" in out
     assert "KTAS: 285 7" in out
     assert "KEAS: 222" in out
     assert "Q: 16.7" in out
