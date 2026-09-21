@@ -63,6 +63,8 @@ def fit_power_law(
     samples: list[dict[str, float]],
     output_key: str,
     linear_keys: frozenset[str] | set[str] = frozenset(),
+    fixed_ratio_exponents: dict[str, float] | None = None,
+    fixed_k: float | None = None,
 ) -> FitResult:
     """Fit output = k * prod(ratio_i ** p_i) * exp(sum(c_j * linear_j)).
 
@@ -72,6 +74,16 @@ def fit_power_law(
         as an exponential term instead of a power term. These may be zero
         or negative. Every other input is treated as ring-read and must be
         strictly positive.
+    fixed_ratio_exponents: known exponents for some ratio inputs, held
+        constant instead of fit. Use this when a boundary condition in the
+        data proves the true exponent exactly (e.g. two quantities defined
+        to move 1:1) -- letting it float anyway just spends that degree of
+        freedom absorbing noise from elsewhere in the data, which can pull
+        the fit away from a value you already know is correct in exchange
+        for a marginally better overall R^2.
+    fixed_k: a known value for the leading constant k, held constant
+        instead of fit (e.g. k=1 when the boundary condition above also
+        pins the constant).
     """
     if len(samples) < 2:
         raise ValueError("need at least 2 samples to fit anything")
@@ -81,11 +93,20 @@ def fit_power_law(
         raise ValueError("samples must include at least one input variable")
 
     linear_keys = set(linear_keys)
+    fixed_ratio_exponents = dict(fixed_ratio_exponents or {})
     unknown = linear_keys - set(input_keys)
     if unknown:
         raise ValueError(f"linear_keys not present in samples: {sorted(unknown)}")
+    unknown = set(fixed_ratio_exponents) - set(input_keys)
+    if unknown:
+        raise ValueError(f"fixed_ratio_exponents not present in samples: {sorted(unknown)}")
+    overlap = linear_keys & set(fixed_ratio_exponents)
+    if overlap:
+        raise ValueError(f"keys can't be both linear and a fixed ratio exponent: {sorted(overlap)}")
+
     ratio_keys = [k for k in input_keys if k not in linear_keys]
     linear_keys_ordered = [k for k in input_keys if k in linear_keys]
+    free_ratio_keys = [k for k in ratio_keys if k not in fixed_ratio_exponents]
 
     for i, s in enumerate(samples):
         for k in (*ratio_keys, output_key):
@@ -99,27 +120,46 @@ def fit_power_law(
                     "it via linear_keys instead of fitting it as a power term."
                 )
 
-    ratio_columns = [np.log([s[k] for s in samples]) for k in ratio_keys]
-    linear_columns = [np.array([s[k] for s in samples], dtype=float) for k in linear_keys_ordered]
-    columns = ratio_columns + linear_columns
-    X = np.column_stack(columns) if columns else np.empty((len(samples), 0))
     y = np.log(np.array([s[output_key] for s in samples]))
 
-    # augment with an intercept column to solve for log(k) alongside the coefficients
-    A = np.column_stack([X, np.ones(len(samples))])
-    coeffs, *_ = np.linalg.lstsq(A, y, rcond=None)
-    n_ratio = len(ratio_keys)
-    ratio_exponents = dict(zip(ratio_keys, coeffs[:n_ratio]))
-    linear_coefficients = dict(zip(linear_keys_ordered, coeffs[n_ratio:-1]))
-    k = float(np.exp(coeffs[-1]))
+    # subtract the known contribution of fixed terms, leaving only what's left to fit
+    known = np.zeros(len(samples))
+    for k, exp in fixed_ratio_exponents.items():
+        known = known + exp * np.log([s[k] for s in samples])
+    if fixed_k is not None:
+        known = known + np.log(fixed_k)
+    y_residual = y - known
 
-    y_pred = A @ coeffs
+    free_ratio_columns = [np.log([s[k] for s in samples]) for k in free_ratio_keys]
+    linear_columns = [np.array([s[k] for s in samples], dtype=float) for k in linear_keys_ordered]
+    columns = free_ratio_columns + linear_columns
+    X = np.column_stack(columns) if columns else np.empty((len(samples), 0))
+
+    if fixed_k is None:
+        # augment with an intercept column to solve for log(k) alongside the coefficients
+        A = np.column_stack([X, np.ones(len(samples))])
+    else:
+        if not columns:
+            raise ValueError("nothing left to fit -- every exponent and k is fixed")
+        A = X
+
+    coeffs, *_ = np.linalg.lstsq(A, y_residual, rcond=None)
+    n_free_ratio = len(free_ratio_keys)
+    free_ratio_exponents = dict(zip(free_ratio_keys, coeffs[:n_free_ratio]))
+    n_linear = len(linear_keys_ordered)
+    linear_coefficients = dict(zip(linear_keys_ordered, coeffs[n_free_ratio : n_free_ratio + n_linear]))
+    k_value = fixed_k if fixed_k is not None else float(np.exp(coeffs[-1]))
+
+    ratio_exponents = {**fixed_ratio_exponents, **free_ratio_exponents}
+    ratio_exponents = {rk: ratio_exponents[rk] for rk in ratio_keys}  # restore input order
+
+    y_pred = known + A @ coeffs
     ss_res = float(np.sum((y - y_pred) ** 2))
     ss_tot = float(np.sum((y - np.mean(y)) ** 2))
     r_squared = 1.0 - ss_res / ss_tot if ss_tot > 0 else 1.0
 
     return FitResult(
-        k=k,
+        k=k_value,
         ratio_exponents=ratio_exponents,
         linear_coefficients=linear_coefficients,
         r_squared=r_squared,

@@ -109,3 +109,39 @@ def test_fits_nonlinear_window_compressed_near_zero_stretched_away():
 
     rows = validate(result, holdout_samples, output_key="tas")
     assert all(row["rel_error"] < 1e-3 for row in rows)
+
+
+def test_pinning_known_exponent_and_k_matches_manual_single_parameter_fit():
+    # KEAS == KTAS at sea level by definition -- that's a known boundary
+    # condition, not something to fit. Letting k and the keas exponent
+    # float anyway lets the regression spend those degrees of freedom
+    # absorbing noise from other altitudes, which can violate the known
+    # identity at altitude=0 to buy a marginally better overall fit.
+    rng = np.random.default_rng(4)
+    keas = rng.uniform(50, 1200, size=12)
+    altitude = rng.uniform(0, 200, size=12)
+    c_true = 0.0034
+    ktas = keas * np.exp(c_true * altitude)
+    samples = [{"keas": v, "altitude": a, "ktas": t} for v, a, t in zip(keas, altitude, ktas)]
+
+    result = fit_power_law(
+        samples,
+        output_key="ktas",
+        linear_keys={"altitude"},
+        fixed_ratio_exponents={"keas": 1.0},
+        fixed_k=1.0,
+    )
+
+    assert result.k == 1.0
+    assert result.ratio_exponents["keas"] == 1.0
+    assert result.linear_coefficients["altitude"] == pytest.approx(c_true, abs=1e-6)
+    assert result.r_squared == pytest.approx(1.0, abs=1e-9)
+    # ktas must equal keas exactly at altitude=0 -- the whole point of pinning
+    assert result.predict(keas=321.0, altitude=0.0) == pytest.approx(321.0, abs=1e-9)
+
+
+def test_pinning_rejects_key_marked_both_linear_and_fixed():
+    samples = [{"a": 1.0, "b": 2.0, "y": 4.0}, {"a": 2.0, "b": 3.0, "y": 12.0}]
+
+    with pytest.raises(ValueError, match="can't be both linear and a fixed ratio exponent"):
+        fit_power_law(samples, output_key="y", linear_keys={"a"}, fixed_ratio_exponents={"a": 1.0})

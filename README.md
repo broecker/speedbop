@@ -68,3 +68,25 @@ close to 1, tabulate the step instead rather than trusting a guessed curve
 shape. `e6b/samples/example_tas_nonlinear_window.csv` shows the format,
 including negative window values.
 
+### Pinning known values instead of fitting them
+
+If a boundary condition in the data proves an exponent or the leading
+constant `k` exactly — e.g. two quantities are defined to be equal at some
+reference point, as KEAS and KTAS are at sea level in `e6b/keas.csv` — pin
+it instead of letting the regression fit it. Otherwise those degrees of
+freedom just get spent absorbing noise from elsewhere in the data, which
+can pull the fit away from a value you already know is correct:
+
+```python
+from e6b.fit import fit_power_law, load_samples
+
+samples = load_samples("e6b/keas.csv")
+result = fit_power_law(
+    samples, output_key="ktas",
+    linear_keys={"altitude"},
+    fixed_ratio_exponents={"keas": 1.0},
+    fixed_k=1.0,
+)
+# ktas = keas * exp(c * altitude), with c the only thing actually fit
+```
+
