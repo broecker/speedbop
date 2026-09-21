@@ -47,3 +47,24 @@ python3 -m e6b.fit e6b/samples/example_tas_window.csv --output tas --linear alti
 relationship where altitude is dialed into a window (including a `0`
 row) and CAS is read off the rings directly.
 
+### Nonlinear window dials
+
+`--linear` assumes the window's dial is evenly spaced, so a fixed rotation
+per unit of the dialed value. If the dial is visibly nonlinear instead —
+compressed near one point and increasingly stretched away from it in both
+directions, which can't be a log scale since it also has to represent zero
+and negative values — fit it as `exp(c * sign(x-offset) * |x-offset| ** n)`
+via `--window` instead:
+
+```
+python3 -m e6b.fit e6b/samples/example_tas_nonlinear_window.csv --output tas --window altitude --holdout 3
+```
+
+This is genuine nonlinear least squares (`c`, `n`, and `offset` all enter
+nonlinearly, unlike every other fit here), so it needs more samples spread
+across both sides of the dial's compressed point to pin down reliably, and
+its R² is worth checking hard before trusting it — if it isn't convincingly
+close to 1, tabulate the step instead rather than trusting a guessed curve
+shape. `e6b/samples/example_tas_nonlinear_window.csv` shows the format,
+including negative window values.
+

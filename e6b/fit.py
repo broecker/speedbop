@@ -34,6 +34,7 @@ import csv
 from dataclasses import dataclass
 
 import numpy as np
+from scipy.optimize import curve_fit
 
 
 @dataclass
@@ -126,7 +127,132 @@ def fit_power_law(
     )
 
 
-def validate(result: FitResult, holdout: list[dict[str, float]], output_key: str) -> list[dict]:
+@dataclass
+class WindowFitResult:
+    """Result of fit_shifted_power_window -- see that function's docstring."""
+
+    log_k: float
+    ratio_exponents: dict[str, float]
+    window_key: str
+    c: float
+    n: float
+    offset: float
+    r_squared: float
+    n_samples: int
+
+    @property
+    def k(self) -> float:
+        return float(np.exp(self.log_k))
+
+    def _window_term(self, x: float) -> float:
+        shifted = x - self.offset
+        return self.c * np.sign(shifted) * (abs(shifted) ** self.n)
+
+    def predict(self, **inputs: float) -> float:
+        value = self.k
+        for name, exp in self.ratio_exponents.items():
+            value *= inputs[name] ** exp
+        value *= np.exp(self._window_term(inputs[self.window_key]))
+        return value
+
+    def formula_str(self, output_name: str = "output") -> str:
+        terms = [f"{name}^{exp:.4f}" for name, exp in self.ratio_exponents.items()]
+        terms.append(
+            f"exp({self.c:.5g} * sign({self.window_key}-{self.offset:.4f}) "
+            f"* |{self.window_key}-{self.offset:.4f}|^{self.n:.4f})"
+        )
+        return f"{output_name} = {self.k:.6g}" + "".join(f" * {t}" for t in terms)
+
+
+def fit_shifted_power_window(
+    samples: list[dict[str, float]],
+    output_key: str,
+    window_key: str,
+    ratio_keys: list[str] | None = None,
+    n_guess: float = 2.0,
+) -> WindowFitResult:
+    """Fit output = k * prod(ratio_i ** p_i) * exp(c * sign(x-offset) * |x-offset| ** n).
+
+    Use this instead of fit_power_law's linear_keys when a window-set
+    input's dial is visibly NONLINEAR -- e.g. compressed near one point and
+    increasingly stretched away from it in both directions (so it can't be
+    a log scale, which excludes zero/negative, but also isn't the uniformly
+    spaced dial that the simple exp(c*x) model assumes). x=offset is where
+    the dial is most compressed (the term vanishes there); n>1 controls how
+    quickly it steepens away from that point.
+
+    window_key: the nonlinear window-set input; may be zero or negative.
+    ratio_keys: other inputs to fit as power terms, same as fit_power_law.
+        Defaults to every other input column.
+
+    Unlike fit_power_law, this is genuine nonlinear least squares (c, n,
+    and offset all enter nonlinearly), not a closed-form regression -- it
+    needs more samples to pin down reliably (3 extra free parameters) and
+    can converge to a wrong local optimum without good coverage of the
+    input's range on both sides of its true offset. Validate hard with
+    holdout samples before trusting it, and prefer a plain lookup table
+    over this if R^2 isn't convincingly close to 1.
+    """
+    if len(samples) < 2:
+        raise ValueError("need at least 2 samples to fit anything")
+
+    if ratio_keys is None:
+        ratio_keys = [k for k in samples[0] if k not in (output_key, window_key)]
+
+    for i, s in enumerate(samples):
+        if s[output_key] <= 0:
+            raise ValueError(f"sample {i} has non-positive {output_key}={s[output_key]!r}")
+        for k in ratio_keys:
+            if s[k] <= 0:
+                raise ValueError(
+                    f"sample {i} has non-positive {k}={s[k]!r} -- ratio inputs "
+                    "must stay strictly positive; pass this key as window_key "
+                    "instead if it can be zero or negative"
+                )
+
+    log_ratio_cols = {k: np.array([np.log(s[k]) for s in samples]) for k in ratio_keys}
+    window_col = np.array([s[window_key] for s in samples], dtype=float)
+    y = np.log(np.array([s[output_key] for s in samples]))
+    n_ratio = len(ratio_keys)
+
+    def model(_xdata: np.ndarray, *params: float) -> np.ndarray:
+        log_k = params[0]
+        exponents = params[1 : 1 + n_ratio]
+        c, n, offset = params[1 + n_ratio :]
+        value = np.full_like(y, log_k)
+        for exp_val, k in zip(exponents, ratio_keys):
+            value = value + exp_val * log_ratio_cols[k]
+        shifted = window_col - offset
+        value = value + c * np.sign(shifted) * np.abs(shifted) ** n
+        return value
+
+    p0 = [0.0] + [1.0] * n_ratio + [0.01, n_guess, 0.0]
+    popt, _ = curve_fit(model, np.arange(len(samples)), y, p0=p0, maxfev=20000)
+
+    log_k = float(popt[0])
+    ratio_exponents = dict(zip(ratio_keys, popt[1 : 1 + n_ratio]))
+    c, n, offset = (float(v) for v in popt[1 + n_ratio :])
+
+    y_pred = model(np.arange(len(samples)), *popt)
+    ss_res = float(np.sum((y - y_pred) ** 2))
+    ss_tot = float(np.sum((y - np.mean(y)) ** 2))
+    r_squared = 1.0 - ss_res / ss_tot if ss_tot > 0 else 1.0
+
+    return WindowFitResult(
+        log_k=log_k,
+        ratio_exponents=ratio_exponents,
+        window_key=window_key,
+        c=c,
+        n=n,
+        offset=offset,
+        r_squared=r_squared,
+        n_samples=len(samples),
+    )
+
+
+def validate(
+    result: FitResult | WindowFitResult, holdout: list[dict[str, float]], output_key: str
+) -> list[dict]:
     """Check the fitted formula against samples it was NOT fit on.
 
     Returns one report row per holdout sample: actual, predicted, and the
@@ -167,7 +293,16 @@ def main() -> None:
         help="names of window-set input columns (e.g. an altitude dialed into a "
              "window) to fit as exp(c*x) instead of x^p; these may be zero or negative",
     )
+    parser.add_argument(
+        "--window",
+        help="name of a window-set input column whose dial is visibly nonlinear "
+             "(compressed near one point, stretched away from it) -- fit as "
+             "exp(c * sign(x-offset) * |x-offset|^n) via nonlinear least squares "
+             "instead of the closed-form --linear model. Mutually exclusive with --linear.",
+    )
     args = parser.parse_args()
+    if args.window and args.linear:
+        parser.error("--window and --linear are mutually exclusive")
 
     samples = load_samples(args.csv_path)
     if args.holdout:
@@ -175,7 +310,10 @@ def main() -> None:
     else:
         fit_samples, holdout_samples = samples, []
 
-    result = fit_power_law(fit_samples, args.output, linear_keys=set(args.linear))
+    if args.window:
+        result = fit_shifted_power_window(fit_samples, args.output, args.window)
+    else:
+        result = fit_power_law(fit_samples, args.output, linear_keys=set(args.linear))
     print(f"fitted on {result.n_samples} samples")
     print(result.formula_str(args.output))
     print(f"R^2 = {result.r_squared:.6f}")

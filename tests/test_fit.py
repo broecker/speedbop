@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from e6b.fit import fit_power_law, validate
+from e6b.fit import fit_power_law, fit_shifted_power_window, validate
 
 
 def test_recovers_exact_time_speed_distance_ratio():
@@ -81,3 +81,31 @@ def test_fits_window_set_variable_including_zero():
     assert result.ratio_exponents["cas"] == pytest.approx(1.0, abs=1e-6)
     assert result.linear_coefficients["altitude_thousands"] == pytest.approx(c, abs=1e-6)
     assert result.predict(cas=100, altitude_thousands=0) == pytest.approx(100.0, abs=1e-6)
+
+
+def test_fits_nonlinear_window_compressed_near_zero_stretched_away():
+    # A window dial that's compressed near one point and stretches away from
+    # it in both directions (and can go negative) isn't a uniform-rotation
+    # window (exp(c*x)) -- model it as exp(c * sign(x-offset) * |x-offset|^n)
+    # instead, fit via nonlinear least squares. True offset=0, n=2.5, spanning
+    # negative values (down to -10, matching a real E6BoP altitude window).
+    rng = np.random.default_rng(2)
+    cas = rng.uniform(80, 250, size=16)
+    altitude = rng.uniform(-10, 25, size=16)
+    c_true, n_true, offset_true = 0.0015, 2.5, 0.0
+    tas = cas * np.exp(
+        c_true * np.sign(altitude - offset_true) * np.abs(altitude - offset_true) ** n_true
+    )
+    samples = [{"cas": v, "altitude": a, "tas": t} for v, a, t in zip(cas, altitude, tas)]
+    fit_samples, holdout_samples = samples[:-3], samples[-3:]
+
+    result = fit_shifted_power_window(fit_samples, output_key="tas", window_key="altitude")
+
+    assert result.r_squared == pytest.approx(1.0, abs=1e-6)
+    assert result.ratio_exponents["cas"] == pytest.approx(1.0, abs=1e-3)
+    assert result.c == pytest.approx(c_true, abs=1e-4)
+    assert result.n == pytest.approx(n_true, abs=1e-2)
+    assert result.offset == pytest.approx(offset_true, abs=1e-2)
+
+    rows = validate(result, holdout_samples, output_key="tas")
+    assert all(row["rel_error"] < 1e-3 for row in rows)
