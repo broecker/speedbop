@@ -74,6 +74,10 @@ class AircraftState:
   def get_keas(self) -> float:
     return round(self.ktas / math.exp(0.003358 * self.altitude))
     
+  def get_q(self) -> float:
+    keas = self.get_keas()
+    # q = keas² / 2950 (or keas² * 0.000339); empirically determined.
+    return keas**2 / 2950
     
   def get_speed(self) -> int:
     """Returns the speed in FP."""
@@ -94,6 +98,7 @@ def main() -> None:
   print('Safe load: ', state.get_safe_load())
   print('KTAS:', state.ktas, state.get_speed())
   print('KEAS:', state.get_keas())
+  print('Q:', state.get_q())
 
 
 
