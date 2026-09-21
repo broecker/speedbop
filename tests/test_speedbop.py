@@ -6,21 +6,21 @@ import pathlib
 import pytest
 
 import speedbop
-from speedbop import AircraftDataCard, AircraftState, dataclass_from_dict
+from speedbop import AircraftDataCard, AircraftState, _dataclass_from_dict
 
 REPO_ROOT = pathlib.Path(__file__).parent.parent
 REAL_ADC_PATH = REPO_ROOT / "adc" / "fj-3m.json"
 
 
 # ---------------------------------------------------------------------------
-# dataclass_from_dict
+# _dataclass_from_dict
 # ---------------------------------------------------------------------------
 
 def test_dataclass_from_dict_passes_scalars_through_unchanged():
     # klass isn't a dataclass, so dataclasses.fields(klass) raises and the
     # bare except falls back to returning the raw value as-is.
-    assert dataclass_from_dict(str, "hello") == "hello"
-    assert dataclass_from_dict(float, 3.0) == 3.0
+    assert _dataclass_from_dict(str, "hello") == "hello"
+    assert _dataclass_from_dict(float, 3.0) == 3.0
 
 
 def test_dataclass_from_dict_builds_nested_dataclasses():
@@ -33,7 +33,7 @@ def test_dataclass_from_dict_builds_nested_dataclasses():
         name: str
         inner: Inner
 
-    result = dataclass_from_dict(Outer, {"name": "a", "inner": {"x": 1.5}})
+    result = _dataclass_from_dict(Outer, {"name": "a", "inner": {"x": 1.5}})
 
     assert result == Outer(name="a", inner=Inner(x=1.5))
     assert isinstance(result.inner, Inner)
@@ -49,7 +49,7 @@ def test_dataclass_from_dict_silently_skips_conversion_on_extra_key():
 
     d = {"x": 1.0, "unexpected_extra_key": 2.0}
 
-    result = dataclass_from_dict(Simple, d)
+    result = _dataclass_from_dict(Simple, d)
 
     assert result is d
     assert not isinstance(result, Simple)
@@ -65,20 +65,20 @@ def test_dataclass_from_dict_silently_skips_conversion_on_missing_key():
 
     d = {"x": 1.0}  # missing required "y"
 
-    result = dataclass_from_dict(Simple, d)
+    result = _dataclass_from_dict(Simple, d)
 
     assert result is d
     assert not isinstance(result, Simple)
 
 
 def test_dataclass_from_dict_list_branch_has_a_name_error_bug():
-    # BUG (speedbop.py, dataclass_from_dict): the list branch iterates over
-    # `data`, but the function's parameter is named `d` -- `data` is never
-    # defined, so any list-typed field raises NameError instead of
+    # BUG (speedbop.py, _dataclass_from_dict): the list branch iterates
+    # over `data`, but the function's parameter is named `d` -- `data` is
+    # never defined, so any list-typed field raises NameError instead of
     # converting. This test documents the current (broken) behavior rather
     # than silently working around it.
     with pytest.raises(NameError):
-        dataclass_from_dict(list[str], ["a", "b"])
+        _dataclass_from_dict(list[str], ["a", "b"])
 
 
 # ---------------------------------------------------------------------------
@@ -142,7 +142,7 @@ def test_aircraft_data_card_from_json_reads_real_fixture():
 
 def test_aircraft_data_card_from_dict_does_not_build_nested_dataclasses():
     # _from_dict is currently unused dead code (from_json calls
-    # dataclass_from_dict directly; the cls._from_dict(...) call is
+    # _dataclass_from_dict directly; the cls._from_dict(...) call is
     # commented out) -- and for good reason: unlike from_json, it does NOT
     # recursively convert nested fields. characteristics/stores end up as
     # plain dicts, not AircraftDataCard.Characteristics/.Stores instances.
@@ -201,26 +201,27 @@ def test_get_keas_applies_altitude_correction_and_rounds():
 
 
 def test_get_q_uses_rounded_keas():
-    # q = keas^2 / 2950, using the rounded get_keas() result -- not the
-    # raw unrounded ratio -- so this pins the two methods' composition,
-    # not just the formula in isolation.
+    # q = round(keas^2 / 2950, 1), using the rounded get_keas() result --
+    # not the raw unrounded ratio -- so this pins the two methods'
+    # composition, not just the formula in isolation.
     state = _make_state(ktas=100.0, altitude=0)  # keas rounds to exactly 100
 
-    assert state.get_q() == pytest.approx(100**2 / 2950)
+    assert state.get_q() == pytest.approx(round(100**2 / 2950, 1))
 
 
 def test_get_smash_uses_wing_load_not_a_raw_weight():
-    # smash = 10 * q / get_wing_load() -- confirms it's composed from the
-    # *wing load* value (weight/wing_area*10), not raw aircraft weight,
-    # matching the "wl" variable e6b/smash.csv was fit against.
+    # smash = round(10 * q / get_wing_load(), 1) -- confirms it's composed
+    # from the *wing load* value (weight/wing_area*10) and the already-
+    # rounded get_q(), not raw aircraft weight or an unrounded q, matching
+    # the "wl" variable e6b/smash.csv was fit against.
     adc = _make_adc(characteristics=AircraftDataCard.Characteristics(
         wing_area=3.0, combat_safe_load=21.0,
     ))
     state = _make_state(adc=adc, weight=17.4, ktas=100.0, altitude=0)
 
-    expected_q = 100**2 / 2950
+    expected_q = round(100**2 / 2950, 1)
     expected_wing_load = 17.4 / 3.0 * 10.0
-    assert state.get_smash() == pytest.approx(10.0 * expected_q / expected_wing_load)
+    assert state.get_smash() == pytest.approx(round(10.0 * expected_q / expected_wing_load, 1))
 
 
 @pytest.mark.parametrize("ktas,expected", [
@@ -245,8 +246,9 @@ def test_aircraft_state_against_real_fixture():
     assert state.get_wing_load() == pytest.approx(58.0)
     assert state.get_safe_load() == pytest.approx(18.9482758620, rel=1e-9)
     assert state.get_keas() == 222
-    assert state.get_q() == pytest.approx(222**2 / 2950)
-    assert state.get_smash() == pytest.approx(10.0 * (222**2 / 2950) / 58.0)
+    expected_q = round(222**2 / 2950, 1)
+    assert state.get_q() == pytest.approx(expected_q)
+    assert state.get_smash() == pytest.approx(round(10.0 * expected_q / 58.0, 1))
     assert state.get_speed() == 7
 
 
@@ -268,4 +270,4 @@ def test_main_runs_and_prints_expected_values(capsys, monkeypatch):
     assert "KTAS: 285 7" in out
     assert "KEAS: 222" in out
     assert "Q: 16.7" in out
-    assert "Smash: 2.88" in out
+    assert "Smash: 2.9" in out
