@@ -6,14 +6,14 @@ import math
 import pathlib
 
 # https://stackoverflow.com/a/54769644
-def dataclass_from_dict(klass, d):
+def _dataclass_from_dict(klass, d):
   if isinstance(d, list):
     (inner,) = klass.__args__
-    return [dataclass_from_dict(inner, i) for i in data]
+    return [_dataclass_from_dict(inner, i) for i in data]
 
   try:
     fieldtypes = {f.name:f.type for f in dataclasses.fields(klass)}
-    return klass(**{f:dataclass_from_dict(fieldtypes[f],d[f]) for f in d})
+    return klass(**{f:_dataclass_from_dict(fieldtypes[f],d[f]) for f in d})
   except:
     return d # Not a dataclass field
 
@@ -50,7 +50,7 @@ class AircraftDataCard:
     with open(path, 'r') as file:      
       adc_dict = json.loads(file.read())
       # return cls._from_dict(adc_dict)
-      return dataclass_from_dict(AircraftDataCard, adc_dict)
+      return _dataclass_from_dict(AircraftDataCard, adc_dict)
 
 
 @dataclass
@@ -77,10 +77,10 @@ class AircraftState:
   def get_q(self) -> float:
     keas = self.get_keas()
     # q = keas² / 2950 (or keas² * 0.000339); empirically determined.
-    return keas**2 / 2950
+    return round(keas**2 / 2950, 1)
   
   def get_smash(self) -> float:
-    return 10.0 * self.get_q() / self.get_wing_load()
+    return round(10.0 * self.get_q() / self.get_wing_load(), 1)
     
   def get_speed(self) -> int:
     """Returns the speed in FP."""
