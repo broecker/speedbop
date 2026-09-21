@@ -15,7 +15,20 @@ def _dataclass_from_dict(klass, d):
     fieldtypes = {f.name:f.type for f in dataclasses.fields(klass)}
     return klass(**{f:_dataclass_from_dict(fieldtypes[f],d[f]) for f in d})
   except:
+    print('Not a dataclass field:', d)
     return d # Not a dataclass field
+  
+  
+def _bop_tablerow_lookup(value: float, table: dict[str, tuple[any]]) -> tuple[any]:
+  # We need to check for str here, as json only accepts strings, not numbers as
+  # dict keys.
+  all_keys = sorted(table.keys())
+  for key in all_keys:
+    val = float(key)
+    if val >= value:
+      return table[key]     
+  return table[all_keys[-1]]
+
 
 @dataclass(frozen=True)
 class AircraftDataCard:
@@ -28,28 +41,28 @@ class AircraftDataCard:
     wing_area:  float
 
     # In loads; i.e. 1/3 g's
-    combat_safe_load: float    
+    combat_safe_load: float   
   
   @dataclass(frozen=True)
   class Stores:
     combat_weight: float
 
 
+  @dataclass(frozen=True)
+  class Lift:
+    alpha_max: float
+    
+    mach_lcs_ids_table: dict[float, tuple[float, int]]
+    
+
+  lift:             Lift
   characteristics:  Characteristics
   stores:           Stores
-  
-  @classmethod
-  def _from_dict(cls, data):
-      return cls(
-          *[data.get(fld.name)
-            for fld in fields(AircraftDataCard)]
-      )
-  
+   
   @classmethod
   def from_json(cls, path: pathlib.Path) -> 'AircraftDataCard':
     with open(path, 'r') as file:      
       adc_dict = json.loads(file.read())
-      # return cls._from_dict(adc_dict)
       return _dataclass_from_dict(AircraftDataCard, adc_dict)
 
 
@@ -87,14 +100,26 @@ class AircraftState:
     """Returns the speed in FP."""
     if self.ktas < 60:
       return 1
-    return 2 + (self.ktas - 60) // 40
+    return 2 + (self.ktas - 60) // 40 
 
+  def get_mach(self) -> float:
+    keas = self.get_keas()
+    mach = keas * math.exp(0.0045*self.altitude) / 674.6
+    return round(mach, 1)
+
+  def get_lcs(self) -> float:
+    mach = self.get_mach()
+    lcs = _bop_tablerow_lookup(mach, 
+                               self.adc.lift.mach_lcs_ids_table)
+    return lcs[0]
+  
+  def get_max_load(self) -> int:
+    max_load = self.adc.lift.alpha_max / self.get_lcs() * self.get_smash()
+    # We don't want to exceed our max load ever, hence we round down.
+    return math.floor(max_load)
 
 def main() -> None:
-  print('Hello Speedbop!')
-
-  adc = AircraftDataCard.from_json(pathlib.Path("adc/fj-3m.json"))
-  print(adc)
+  adc = AircraftDataCard.from_json(pathlib.Path("adc/fj-3m.json")) 
   state = AircraftState(adc, weight=17.4, ktas=285, altitude=75)
     
   
@@ -104,7 +129,9 @@ def main() -> None:
   print('KEAS:', state.get_keas())
   print('Q:', state.get_q())
   print('Smash:', state.get_smash())
-
+  print('Mach:', state.get_mach())
+  print('LCS:', state.get_lcs())
+  print('Max load:', state.get_max_load())
 
 
 if __name__ == '__main__':
