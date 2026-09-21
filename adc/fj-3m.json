@@ -1,0 +1,11 @@
+{
+  "name": "FJ-3M Fury",
+  "version": "1.25.01",
+  "characteristics": {
+    "wing_area": 3.0,
+    "combat_safe_load": 21
+  },
+  "stores": {
+    "combat_weight": 15.7
+  }
+}
