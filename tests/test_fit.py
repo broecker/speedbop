@@ -42,3 +42,18 @@ def test_low_r_squared_flags_non_ratio_relationships():
     result = fit_power_law(samples, output_key="y")
 
     assert result.r_squared < 0.999
+
+
+@pytest.mark.parametrize("bad_value", [0, -5])
+def test_rejects_non_positive_values_instead_of_hanging(bad_value):
+    # log(0)/log(negative) produces -inf/NaN, which can make the SVD solver
+    # inside np.linalg.lstsq spin for a very long time instead of raising.
+    # This must fail fast with a clear error before reaching the solver.
+    samples = [
+        {"distance": 60, "speed": 120, "time": 0.5},
+        {"distance": bad_value, "speed": 120, "time": 1.0},
+        {"distance": 90, "speed": 90, "time": 1.0},
+    ]
+
+    with pytest.raises(ValueError, match="strictly positive"):
+        fit_power_law(samples, output_key="time")

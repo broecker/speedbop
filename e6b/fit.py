@@ -59,8 +59,20 @@ def fit_power_law(samples: list[dict[str, float]], output_key: str) -> FitResult
     if not input_keys:
         raise ValueError("samples must include at least one input variable")
 
-    X = np.array([[np.log(s[k]) for k in input_keys] for s in samples])
-    y = np.array([np.log(s[output_key]) for s in samples])
+    for i, s in enumerate(samples):
+        for k in (*input_keys, output_key):
+            if s[k] <= 0:
+                raise ValueError(
+                    f"sample {i} has {k}={s[k]!r}, but log-log fitting requires "
+                    "strictly positive values (0 or negative values produce "
+                    "-inf/NaN, which can make the SVD solver in np.linalg.lstsq "
+                    "hang instead of failing cleanly). If 0 is a real reading for "
+                    "this step, it's not a pure ratio relationship -- tabulate it "
+                    "instead of fitting a power law."
+                )
+
+    X = np.log(np.array([[s[k] for k in input_keys] for s in samples]))
+    y = np.log(np.array([s[output_key] for s in samples]))
 
     # augment with an intercept column to solve for log(k) alongside the exponents
     A = np.column_stack([X, np.ones(len(samples))])
