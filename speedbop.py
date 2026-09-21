@@ -100,12 +100,6 @@ class AircraftState:
     # keas = 674.573 * mach * exp(-0.0044558 * altitude); empirically determined.
     return round(keas * math.exp(0.0044558 * self.altitude) / 674.573, 1)
 
-  def get_speed(self) -> int:
-    """Returns the speed in FP."""
-    if self.ktas < 60:
-      return 1
-    return 2 + (self.ktas - 60) // 40 
-
   def get_mach(self) -> float:
     keas = self.get_keas()
     mach = keas * math.exp(0.0045*self.altitude) / 674.6
@@ -121,6 +115,20 @@ class AircraftState:
     max_load = self.adc.lift.alpha_max / self.get_lcs() * self.get_smash()
     # We don't want to exceed our max load ever, hence we round down.
     return math.floor(max_load)
+  
+  
+  def calculate_corner_speed(self) -> float:
+    alpha_over_lcs = self.adc.lift.alpha_max / self.get_lcs()
+    desired_smash = self.adc.characteristics.combat_safe_load / alpha_over_lcs
+    desired_q = q_from_smash(desired_smash, self.get_wing_load())
+    desired_keas = keas_from_q(desired_q)
+    return math.floor(desired_keas)
+
+
+def speed_fp_from_ktas(ktas: float) -> int:
+  if ktas < 60:
+    return 1
+  return 2 + (ktas - 60) // 40 
 
 # Inverse helpers -- going from a derived value back to the inputs that
 # would have produced it, e.g. when a known smash/q/mach reading needs to
@@ -145,18 +153,19 @@ def ktas_from_q(q: float, altitude: float) -> float:
 
 def main() -> None:
   adc = AircraftDataCard.from_json(pathlib.Path("adc/fj-3m.json")) 
-  state = AircraftState(adc, weight=17.4, ktas=285, altitude=75)
+  state = AircraftState(adc, weight=17.4, ktas=485, altitude=75)
     
   
   print('Wing load: ', state.get_wing_load())
   print('Safe load: ', state.get_safe_load())
-  print('KTAS:', state.ktas, state.get_speed())
+  print('KTAS:', state.ktas, speed_fp_from_ktas(state.ktas))
   print('KEAS:', state.get_keas())
   print('Q:', state.get_q())
   print('Smash:', state.get_smash())
   print('Mach:', state.get_mach())
   print('LCS:', state.get_lcs())
   print('Max load:', state.get_max_load())
+  print('Corner speed:', state.calculate_corner_speed())
 
 
 if __name__ == '__main__':
