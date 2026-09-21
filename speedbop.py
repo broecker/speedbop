@@ -82,7 +82,12 @@ class AircraftState:
   
   def get_smash(self) -> float:
     return round(10.0 * self.get_q() / self.get_wing_load(), 1)
-    
+
+  def get_mach(self) -> float:
+    keas = self.get_keas()
+    # keas = 674.573 * mach * exp(-0.0044558 * altitude); empirically determined.
+    return round(keas * math.exp(0.0044558 * self.altitude) / 674.573, 1)
+
   def get_speed(self) -> int:
     """Returns the speed in FP."""
     if self.ktas < 60:
@@ -104,6 +109,7 @@ def main() -> None:
   print('KEAS:', state.get_keas())
   print('Q:', state.get_q())
   print('Smash:', state.get_smash())
+  print('Mach:', state.get_mach())
 
 
 

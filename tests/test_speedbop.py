@@ -224,6 +224,25 @@ def test_get_smash_uses_wing_load_not_a_raw_weight():
     assert state.get_smash() == pytest.approx(round(10.0 * expected_q / expected_wing_load, 1))
 
 
+def test_get_mach_is_the_inverse_of_the_keas_formula():
+    # keas = 674.573 * mach * exp(-0.0044558*altitude), so mach = keas *
+    # exp(0.0044558*altitude) / 674.573 -- and at altitude=0 that's just
+    # keas/674.573, the cleanest case to pin down independent of the
+    # exponential term.
+    state = _make_state(ktas=674.573, altitude=0)  # keas rounds to 675
+
+    assert state.get_mach() == pytest.approx(round(675 / 674.573, 1))
+
+
+def test_get_mach_uses_rounded_keas_and_applies_altitude_correction():
+    # Cross-checks against a real e6b/mach.csv reading (keas=250, alt=225,
+    # mach=1.0) -- ktas is chosen so get_keas() rounds to exactly 250.
+    state = _make_state(ktas=250 * math.exp(0.003358 * 225), altitude=225)
+
+    assert state.get_keas() == 250
+    assert state.get_mach() == pytest.approx(1.0, abs=0.02)
+
+
 @pytest.mark.parametrize("ktas,expected", [
     (0.0, 1),
     (59.9, 1),
@@ -250,6 +269,7 @@ def test_aircraft_state_against_real_fixture():
     assert state.get_q() == pytest.approx(expected_q)
     assert state.get_smash() == pytest.approx(round(10.0 * expected_q / 58.0, 1))
     assert state.get_speed() == 7
+    assert state.get_mach() == pytest.approx(0.5)
 
 
 # ---------------------------------------------------------------------------
@@ -271,3 +291,4 @@ def test_main_runs_and_prints_expected_values(capsys, monkeypatch):
     assert "KEAS: 222" in out
     assert "Q: 16.7" in out
     assert "Smash: 2.9" in out
+    assert "Mach: 0.5" in out
