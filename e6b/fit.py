@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import csv
 from dataclasses import dataclass
+import random
 
 import numpy as np
 
@@ -116,6 +117,7 @@ def main() -> None:
 
     samples = load_samples(args.csv_path)
     if args.holdout:
+        random.shuffle(samples)
         fit_samples, holdout_samples = samples[: -args.holdout], samples[-args.holdout :]
     else:
         fit_samples, holdout_samples = samples, []
