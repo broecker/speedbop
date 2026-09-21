@@ -102,3 +102,26 @@ result = fit_power_law(samples, output_key="q", fixed_ratio_exponents={"keas": 2
 # every point within ~1.5% except the smallest (a rounded integer reading)
 ```
 
+### Quantities with no real-world meaning
+
+Not everything on the device corresponds to a real quantity -- some
+windows just display the result of composing two other dial settings, with
+no external law to check the fit against. That doesn't change the
+approach: the device is built from the same log-scaled rotating rings
+either way, so the general unconstrained fit still applies, and R² plus
+holdout validation are all you have to trust it (no physical sanity check
+like `p=2` for dynamic pressure is available).
+
+`e6b/smash.csv` is real data for one such quantity, read off a window
+after two outer dials (`wl`, `q`) are set:
+
+```
+python3 -m e6b.fit e6b/smash.csv --output smash
+# smash = 10 * wl^-1 * q^1, R^2 = 1.0 to floating-point precision
+```
+
+One row in the raw readings (`wl=40, q=100, smash=125`) was a confirmed
+outlier -- off by -78% while every other row matched to floating-point
+precision -- and was dropped rather than "corrected" to the formula's
+predicted value, so this file contains only real device readings.
+

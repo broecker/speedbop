@@ -166,3 +166,25 @@ def test_q_is_dynamic_pressure_pinned_to_keas_squared():
     # nearest-integer reading at very low magnitude) is within ~1.5%
     rows = validate(pinned, [s for s in samples if s["keas"] != 52], output_key="q")
     assert all(row["rel_error"] < 0.02 for row in rows)
+
+
+def test_smash_is_an_exact_ratio_with_no_physical_meaning():
+    # "smash" has no real-world correspondence (unlike ktas or q) -- it's
+    # read off a window after two outer dials (wl, q) are set. There's no
+    # physical law to pin an exponent against here, but the general
+    # unconstrained fit still recovers an exact, clean formula: the device
+    # is built from the same log-scaled rotating rings regardless of
+    # whether the quantity it produces means anything outside the game.
+    # One row in the raw readings (wl=40, q=100, smash=125) was a
+    # confirmed outlier -- off by -78% vs every other row matching to
+    # floating-point precision -- and was dropped rather than "corrected"
+    # to a fabricated value, so e6b/smash.csv contains only real readings.
+    samples = load_samples("e6b/smash.csv")
+
+    result = fit_power_law(samples, output_key="smash")
+
+    assert result.r_squared == pytest.approx(1.0, abs=1e-9)
+    assert result.k == pytest.approx(10.0, abs=1e-6)
+    assert result.ratio_exponents["wl"] == pytest.approx(-1.0, abs=1e-6)
+    assert result.ratio_exponents["q"] == pytest.approx(1.0, abs=1e-6)
+    assert result.predict(wl=40, q=100) == pytest.approx(25.0, abs=1e-6)
