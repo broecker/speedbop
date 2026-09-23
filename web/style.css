@@ -211,6 +211,66 @@ details.advanced summary {
   padding: 8px 0;
 }
 
+.hint-line {
+  color: var(--text-dim);
+  font-size: 0.8rem;
+  margin: 0 0 8px;
+}
+
+/* ---------- engine output chart ---------- */
+
+.chart-panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 18px;
+  padding: 0 14px 14px;
+  overflow: hidden;
+}
+
+.chart-panel summary {
+  padding: 12px 0;
+  font-size: 0.95rem;
+  cursor: pointer;
+  margin: 0 -14px;
+  padding-left: 14px;
+}
+
+#engine-chart {
+  width: 100%;
+}
+
+#engine-chart svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+#engine-chart text {
+  fill: var(--text-dim);
+  font-size: 7px;
+}
+
+#engine-chart .isobar-line {
+  fill: none;
+  stroke-width: 1.5;
+}
+
+#engine-chart .isobar-label {
+  font-size: 6px;
+}
+
+#engine-chart .current-point {
+  fill: var(--accent);
+  stroke: var(--panel);
+  stroke-width: 1;
+}
+
+#engine-chart .axis-line {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
 /* ---------- buttons ---------- */
 
 .primary-btn {

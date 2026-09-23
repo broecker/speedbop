@@ -456,6 +456,34 @@ def test_calculate_performance_engine_output_defaults_to_chart_max_when_not_give
     assert performance.engine_delta_ktas == pytest.approx(state.get_engine_output())
 
 
+def test_calculate_performance_clamps_engine_output_to_chart_max():
+    # You can't request more thrust than the engine actually has -- an
+    # override above the chart's max for this state clamps down to it,
+    # same treatment as the pulls/max-load clamp above.
+    state = _make_state(ktas=100.0, altitude=0)
+    max_output = state.get_engine_output()
+
+    performance = calculate_performance(
+        state, segment_pulls=0, delta_altitude=0, engine_output=max_output + 50
+    )
+
+    assert performance.engine_delta_ktas == pytest.approx(max_output)
+
+
+def test_calculate_performance_clamps_segment_fp_to_between_one_and_current_speed_fp():
+    state = _make_state(ktas=485.0, altitude=75)
+    speed = speedbop.speed_fp_from_ktas(state.get_keas())
+
+    too_long = calculate_performance(state, segment_pulls=10, segment_fp=speed + 20)
+    assert too_long.segment_fp == speed
+
+    too_short = calculate_performance(state, segment_pulls=10, segment_fp=-5)
+    assert too_short.segment_fp == 1
+
+    in_range = calculate_performance(state, segment_pulls=10, segment_fp=speed - 1)
+    assert in_range.segment_fp == speed - 1
+
+
 def test_calculate_performance_clamps_delta_altitude_so_altitude_never_goes_negative():
     state = _make_state(ktas=485.0, altitude=10)
 
@@ -551,6 +579,19 @@ def test_turn_performance_max_alpha_is_the_aircrafts_alpha_max():
     performance = calculate_performance(state, segment_pulls=22, delta_altitude=-15)
 
     assert performance.max_alpha == performance.old_state.adc.lift.alpha_max
+
+
+def test_turn_performance_max_engine_output_is_read_off_the_old_state():
+    # Unlike max_alpha, this one genuinely could differ between old/new
+    # state (the engine chart is indexed by altitude/mach, both of which
+    # change turn to turn) -- old_state is what the turn's default/override
+    # was actually chosen against, so that's what "max available" means.
+    state = _make_state(ktas=485.0, altitude=75)
+    performance = calculate_performance(state, segment_pulls=22, delta_altitude=-15)
+
+    assert performance.max_engine_output == pytest.approx(performance.old_state.get_engine_output())
+    assert "Engine  dKTAS:" in performance.format()
+    assert f"(max {performance.max_engine_output})" in performance.format()
 
 
 # ---------------------------------------------------------------------------

@@ -1,3 +1,5 @@
+import csv
+
 import pytest
 
 from chart import Isobar, IsobarChart, load_isobars, _interp
@@ -128,6 +130,29 @@ def test_chart_works_with_descending_mach_convention():
     chart = IsobarChart([low_output_high_mach, high_output_low_mach])
 
     assert chart.interpolate(altitude=0.0, mach=1.5) == pytest.approx(75.0)
+
+
+def test_chart_to_rows_round_trips_through_load_isobars(tmp_path):
+    chart = _simple_chart()
+
+    rows = chart.to_rows()
+
+    assert len(rows) == 6  # 2 isobars * 3 points each
+    assert {"output": 50.0, "altitude": 0.0, "mach": 0.5} in rows
+    assert {"output": 100.0, "altitude": 300.0, "mach": 2.0} in rows
+
+    # Writing to_rows() out as a CSV and reading it back with load_isobars()
+    # should reproduce an equivalent chart.
+    path = tmp_path / "roundtrip.csv"
+    with path.open("w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=["output", "altitude", "mach"])
+        writer.writeheader()
+        writer.writerows(rows)
+
+    reloaded = IsobarChart(load_isobars(str(path)))
+    assert reloaded.interpolate(altitude=0.0, mach=0.7) == pytest.approx(
+        chart.interpolate(altitude=0.0, mach=0.7)
+    )
 
 
 # ---------------------------------------------------------------------------

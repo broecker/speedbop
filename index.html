@@ -98,9 +98,15 @@
         <input id="segment-fp-input" type="number" inputmode="numeric" step="1" placeholder="auto (current speed FP)">
       </div>
       <div class="field">
-        <label for="engine-output-input">Engine output (&Delta;KTAS)</label>
+        <label for="engine-output-input">Engine output <span id="max-engine-hint" class="hint">Max: &mdash;</span></label>
         <input id="engine-output-input" type="number" inputmode="decimal" step="0.1">
       </div>
+    </details>
+
+    <details class="chart-panel" id="engine-chart-panel">
+      <summary>Engine output chart</summary>
+      <p id="engine-chart-caption" class="hint-line"></p>
+      <div id="engine-chart"></div>
     </details>
 
     <div class="bottom-action">

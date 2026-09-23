@@ -141,6 +141,18 @@ class IsobarChart:
         outputs = [o for _, o in sliced]
         return _interp(mach, machs, outputs)
 
+    def to_rows(self) -> list[dict]:
+        """Every digitized point as a flat (output, altitude, mach) dict.
+
+        The same shape load_isobars() reads back in -- useful for exporting
+        or plotting the chart as-loaded, e.g. rendering it in a UI.
+        """
+        return [
+            {"output": iso.output, "altitude": a, "mach": m}
+            for iso in self.isobars
+            for a, m in zip(iso.altitude, iso.mach)
+        ]
+
 
 def load_isobars(path: str) -> list[Isobar]:
     """Load isobars from a CSV with columns output,altitude,mach.
