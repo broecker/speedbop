@@ -1,6 +1,15 @@
 # speedbop
 Automatic performance calculation for Birds of Prey
 
+**[▶ Launch the app](https://broecker.github.io/speedbop/)** -- runs entirely
+in your browser via [Pyodide](https://pyodide.org/), no install needed. See
+`index.html` / `web/app.js` for how it wires `speedbop.py` and `chart.py`
+into a mobile-first turn calculator.
+
+(GitHub's rendered README strips `<script>` tags, so `index.html` can't run
+inline on this page -- the link above points at the same file served
+statically via GitHub Pages, where it does.)
+
 ## E6B formula derivation
 
 The game's performance calculations are done by hand with an E6B-style
