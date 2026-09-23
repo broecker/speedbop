@@ -208,6 +208,10 @@ class TurnPerformance:
     def new_speed_fp(self) -> int:
         return speed_fp_from_ktas(self.new_state.get_keas())
 
+    @property
+    def max_alpha(self) -> float:
+        return self.old_state.adc.lift.alpha_max
+
     def format(self) -> str:
         lines = [
             "-" * 79,
@@ -215,7 +219,7 @@ class TurnPerformance:
             f"Pulls:         {self.segment_pulls} ( {self.gs} Gs)",
             f"Segment length {self.segment_fp} / {self.initial_speed_fp}",
             f"DAlt:          {self.delta_altitude}",
-            f"Alpha:         {round(self.alpha, 1)}",
+            f"Alpha:         {round(self.alpha, 1)} (max {self.max_alpha})",
             f"Induced dKTAS: {round(self.induced_delta_ktas, 1)}",
             f"Grav    dKTAS: {round(self.gravity_delta_ktas, 1)}",
             f"Form    dKTAS: {round(self.form_delta_ktas, 1)}",
@@ -231,6 +235,7 @@ def calculate_performance(
     segment_pulls: int,
     segment_fp: int | None = None,
     delta_altitude: int = 0,
+    engine_output: float | None = None,
 ) -> TurnPerformance:
     # Structural load and sea level are hard limits, not suggestions -- clamp
     # here so every caller gets them for free, not just ones that also apply
@@ -252,9 +257,17 @@ def calculate_performance(
 
     gravity_delta_ktas = float(delta_altitude) / speed * 60 * -1
     form_delta_ktas = 0.0
-    engine_delta_ktas = state.get_engine_output()
+    # A caller may set this explicitly (e.g. a throttle setting other than
+    # max), defaulting to the chart's max available output for this state.
+    engine_delta_ktas = state.get_engine_output() if engine_output is None else engine_output
 
-    new_ktas = state.ktas - induced_delta_ktas + gravity_delta_ktas - form_delta_ktas
+    new_ktas = (
+        state.ktas
+        - induced_delta_ktas
+        + gravity_delta_ktas
+        - form_delta_ktas
+        + engine_delta_ktas
+    )
     new_altitude = state.altitude + delta_altitude
     new_state = dataclasses.replace(state, ktas=new_ktas, altitude=new_altitude)
 
@@ -295,12 +308,14 @@ class PerformanceHistory:
         segment_pulls: int,
         segment_fp: int | None = None,
         delta_altitude: int = 0,
+        engine_output: float | None = None,
     ) -> TurnPerformance:
         performance = calculate_performance(
             self.current_state,
             segment_pulls,
             segment_fp=segment_fp,
             delta_altitude=delta_altitude,
+            engine_output=engine_output,
         )
         self.turns.append(performance)
         return performance

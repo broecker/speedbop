@@ -82,17 +82,24 @@
 
     <div class="field">
       <label>&Delta; Altitude</label>
-      <div class="stepper" data-stepper="delta-altitude" data-min="-50" data-max="50" data-step-size="5">
-        <button type="button" data-step="-5" aria-label="Decrease altitude change">&minus;</button>
+      <div class="stepper stepper-multi" data-stepper="delta-altitude" data-min="-50" data-max="50">
+        <button type="button" data-step="-5" aria-label="Decrease altitude change by 5">&minus;5</button>
+        <button type="button" data-step="-1" aria-label="Decrease altitude change by 1">&minus;1</button>
         <output>0</output>
-        <button type="button" data-step="5" aria-label="Increase altitude change">&plus;</button>
+        <button type="button" data-step="1" aria-label="Increase altitude change by 1">&plus;1</button>
+        <button type="button" data-step="5" aria-label="Increase altitude change by 5">&plus;5</button>
       </div>
     </div>
 
     <details class="advanced">
-      <summary>Advanced: segment FP override</summary>
+      <summary>Advanced: segment FP / engine output override</summary>
       <div class="field">
+        <label for="segment-fp-input">Segment FP</label>
         <input id="segment-fp-input" type="number" inputmode="numeric" step="1" placeholder="auto (current speed FP)">
+      </div>
+      <div class="field">
+        <label for="engine-output-input">Engine output (&Delta;KTAS)</label>
+        <input id="engine-output-input" type="number" inputmode="decimal" step="0.1">
       </div>
     </details>
 
