@@ -19,7 +19,7 @@ from speedbop import (
     ktas_from_q,
     q_from_smash,
 )
-from e6b.chart import Isobar, IsobarChart, load_isobars
+from chart import Isobar, IsobarChart, load_isobars
 
 REPO_ROOT = pathlib.Path(__file__).parent.parent
 REAL_ADC_PATH = REPO_ROOT / "adc" / "fj-3m.json"

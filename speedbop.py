@@ -4,7 +4,7 @@ import json
 import math
 import pathlib
 
-from e6b.chart import IsobarChart, load_isobars
+from chart import IsobarChart, load_isobars
 
 
 # https://stackoverflow.com/a/54769644

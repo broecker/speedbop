@@ -145,21 +145,28 @@ The real atmosphere's barometric power law doesn't fit this data at all
 the game approximates it with a plain exponential decay instead of the
 true physics formula.
 
-## Reading 2D charts: e6b/chart.py
+## Reading 2D charts: chart.py
 
 Not every calculation is a formula at all. Engine performance vs. altitude
 and Mach, on some aircraft data cards, is given as a 2D chart: a family of
 labeled contour lines ("isobars") showing curves of constant output.
 There's no closed-form relationship to fit here -- the chart itself *is*
-the data, and `e6b/chart.py` reads it the same way you'd read it by hand:
+the data, and `chart.py` reads it the same way you'd read it by hand:
 
 1. Slice every isobar at the query altitude -- interpolate along that
    isobar's own digitized points to find the Mach value it crosses there.
 2. Interpolate across isobars by Mach -- sort the sliced points and
    interpolate the output value between the two that bracket the query.
 
+`chart.py` lives at the repo root, not inside `e6b/`, deliberately: `e6b/`
+is the offline, numpy/scipy-heavy toolkit for *deriving* formulas from
+device readings (see above), never imported by `speedbop.py`. `chart.py`
+is the opposite -- a dependency-free module that `speedbop.py` actually
+imports and runs at real gameplay time, including inside Pyodide in the
+browser, so it needs to stand on its own.
+
 ```python
-from e6b.chart import Isobar, IsobarChart
+from chart import Isobar, IsobarChart
 
 chart = IsobarChart([
     Isobar(output=50.0, altitude=[0, 150, 300], mach=[0.5, 0.8, 1.0]),

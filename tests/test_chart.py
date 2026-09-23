@@ -1,6 +1,6 @@
 import pytest
 
-from e6b.chart import Isobar, IsobarChart, load_isobars, _interp
+from chart import Isobar, IsobarChart, load_isobars, _interp
 
 
 # ---------------------------------------------------------------------------
