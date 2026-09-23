@@ -7,15 +7,6 @@ import pathlib
 
 from e6b.chart import IsobarChart, load_isobars
 
-_ENGINE_CHART_PATH = pathlib.Path("e6b/engine.csv")
-_engine_chart: IsobarChart | None = None
-
-def _get_engine_chart() -> IsobarChart:
-  global _engine_chart
-  if _engine_chart is None:
-    _engine_chart = IsobarChart(load_isobars(str(_ENGINE_CHART_PATH)))
-  return _engine_chart
-
 # https://stackoverflow.com/a/54769644
 def _dataclass_from_dict(klass, d):
   if isinstance(d, list):
@@ -65,16 +56,24 @@ class AircraftDataCard:
     mach_lcs_ids_table: dict[float, tuple[float, int]]
     
 
-  lift:             Lift
-  characteristics:  Characteristics
-  stores:           Stores
+  lift:               Lift
+  characteristics:    Characteristics
+  stores:             Stores
+  
+  dry_engine_output:  IsobarChart
    
   @classmethod
   def from_json(cls, path: pathlib.Path) -> 'AircraftDataCard':
     with open(path, 'r') as file:      
       adc_dict = json.loads(file.read())
-      return _dataclass_from_dict(AircraftDataCard, adc_dict)
 
+      # Let's replace the relative path to the engine chart with an actual chart
+      # instance.
+      if adc_dict['dry_engine_output']:
+        chart_file = path.parent / adc_dict['dry_engine_output']
+        adc_dict['dry_engine_output'] = IsobarChart(load_isobars(chart_file))
+      
+      return _dataclass_from_dict(AircraftDataCard, adc_dict)
 
 @dataclass
 class AircraftState:
@@ -113,8 +112,9 @@ class AircraftState:
     return round(mach, 1)
 
   def get_engine_output(self) -> float:
-    chart = _get_engine_chart()
-    return chart.interpolate(altitude=self.altitude, mach=self.get_mach())
+    chart = self.adc.dry_engine_output
+    return round(
+      chart.interpolate(altitude=self.altitude, mach=self.get_mach()), 1)
 
   def get_lcs(self) -> float:
     mach = self.get_mach()
