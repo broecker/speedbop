@@ -14,6 +14,7 @@ from speedbop import (
     _bop_tablerow_lookup,
     _dataclass_from_dict,
     calculate_performance,
+    gs_from_pulls,
     keas_from_q,
     ktas_from_keas,
     ktas_from_q,
@@ -416,6 +417,55 @@ def test_calculate_performance_new_ktas_matches_the_reported_breakdown():
         - performance.form_delta_ktas
     )
     assert performance.new_state.ktas == pytest.approx(expected_new_ktas)
+
+
+def test_calculate_performance_clamps_delta_altitude_so_altitude_never_goes_negative():
+    state = _make_state(ktas=485.0, altitude=10)
+
+    performance = calculate_performance(state, segment_pulls=5, delta_altitude=-25)
+
+    assert performance.new_state.altitude == 0
+    assert performance.delta_altitude == -10  # clamped to what was actually available
+
+
+def test_calculate_performance_clamped_altitude_also_affects_the_gravity_term():
+    # The gravity term has to reflect the descent that actually happened,
+    # not the originally requested delta_altitude -- you can't gain more
+    # energy diving than you had altitude to dive through.
+    state = _make_state(ktas=485.0, altitude=10)
+    speed = speedbop.speed_fp_from_ktas(state.get_keas())
+
+    performance = calculate_performance(state, segment_pulls=5, delta_altitude=-25)
+
+    assert performance.gravity_delta_ktas == pytest.approx(10.0 / speed * 60)
+
+
+def test_calculate_performance_does_not_clamp_delta_altitude_when_climbing():
+    state = _make_state(ktas=485.0, altitude=10)
+
+    performance = calculate_performance(state, segment_pulls=5, delta_altitude=20)
+
+    assert performance.new_state.altitude == 30
+    assert performance.delta_altitude == 20
+
+
+def test_calculate_performance_clamps_segment_pulls_to_max_load():
+    state = _make_state(ktas=485.0, altitude=75)
+    max_load = state.get_max_load()
+
+    performance = calculate_performance(state, segment_pulls=max_load + 50, delta_altitude=0)
+
+    assert performance.segment_pulls == max_load
+    assert performance.gs == pytest.approx(gs_from_pulls(max_load))
+
+
+def test_calculate_performance_does_not_clamp_segment_pulls_under_max_load():
+    state = _make_state(ktas=485.0, altitude=75)
+    max_load = state.get_max_load()
+
+    performance = calculate_performance(state, segment_pulls=max_load - 1, delta_altitude=0)
+
+    assert performance.segment_pulls == max_load - 1
 
 
 def test_calculate_performance_keeps_adc_and_weight_unchanged():
