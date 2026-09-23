@@ -415,8 +415,45 @@ def test_calculate_performance_new_ktas_matches_the_reported_breakdown():
         - performance.induced_delta_ktas
         + performance.gravity_delta_ktas
         - performance.form_delta_ktas
+        + performance.engine_delta_ktas
     )
     assert performance.new_state.ktas == pytest.approx(expected_new_ktas)
+
+
+def test_calculate_performance_engine_delta_ktas_actually_speeds_up_the_aircraft():
+    # Regression test: engine_delta_ktas used to be computed and reported
+    # but never actually folded into new_ktas -- with no pulls and no
+    # altitude change (so induced/gravity/form are all zero), the only
+    # thing that should change ktas at all is engine thrust.
+    state = _make_state(ktas=100.0, altitude=0)
+
+    performance = calculate_performance(state, segment_pulls=0, delta_altitude=0)
+
+    assert performance.induced_delta_ktas == pytest.approx(0.0)
+    assert performance.gravity_delta_ktas == pytest.approx(0.0)
+    assert performance.engine_delta_ktas > 0
+    assert performance.new_state.ktas == pytest.approx(
+        state.ktas + performance.engine_delta_ktas
+    )
+
+
+def test_calculate_performance_engine_output_can_be_overridden():
+    state = _make_state(ktas=100.0, altitude=0)
+
+    performance = calculate_performance(
+        state, segment_pulls=0, delta_altitude=0, engine_output=12.5
+    )
+
+    assert performance.engine_delta_ktas == pytest.approx(12.5)
+    assert performance.new_state.ktas == pytest.approx(state.ktas + 12.5)
+
+
+def test_calculate_performance_engine_output_defaults_to_chart_max_when_not_given():
+    state = _make_state(ktas=100.0, altitude=0)
+
+    performance = calculate_performance(state, segment_pulls=0, delta_altitude=0)
+
+    assert performance.engine_delta_ktas == pytest.approx(state.get_engine_output())
 
 
 def test_calculate_performance_clamps_delta_altitude_so_altitude_never_goes_negative():
@@ -503,6 +540,17 @@ def test_turn_performance_format_includes_key_numbers():
     assert "[Performance]" in text
     assert "Pulls:         22" in text
     assert "DAlt:          -15" in text
+    assert "(max 20.0)" in text  # _make_adc's alpha_max
+
+
+def test_turn_performance_max_alpha_is_the_aircrafts_alpha_max():
+    # Derived from old_state (the turn's starting state), not new_state --
+    # alpha_max is a constant of the airframe either way, but this pins
+    # which state it's read off in case that ever stops being true.
+    state = _make_state(ktas=485.0, altitude=75)
+    performance = calculate_performance(state, segment_pulls=22, delta_altitude=-15)
+
+    assert performance.max_alpha == performance.old_state.adc.lift.alpha_max
 
 
 # ---------------------------------------------------------------------------
@@ -535,6 +583,16 @@ def test_performance_history_resolve_turn_chains_state_automatically():
     assert p2.old_state is p1.new_state
 
     assert history.turns == [p1, p2]
+
+
+def test_performance_history_resolve_turn_passes_through_engine_output_override():
+    state = _make_state(ktas=485.0, altitude=75)
+    history = PerformanceHistory(state)
+
+    performance = history.resolve_turn(segment_pulls=0, delta_altitude=0, engine_output=5.0)
+
+    assert performance.engine_delta_ktas == pytest.approx(5.0)
+    assert history.current_state.ktas == pytest.approx(state.ktas + 5.0)
 
 
 def test_performance_history_format_joins_every_turn():

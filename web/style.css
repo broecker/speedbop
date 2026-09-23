@@ -197,6 +197,10 @@ input:focus {
   font-variant-numeric: tabular-nums;
 }
 
+.stepper-multi button {
+  font-size: 0.95rem;
+}
+
 details.advanced {
   margin-bottom: 18px;
 }
@@ -291,6 +295,11 @@ details.advanced summary {
 .breakdown td:last-child {
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+
+.breakdown tr.near-limit td {
+  color: var(--danger);
+  font-weight: 600;
 }
 
 /* ---------- history log ---------- */

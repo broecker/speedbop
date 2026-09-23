@@ -211,25 +211,39 @@ function renderState(state) {
   document.getElementById("stat-altitude").textContent = state.altitude;
   document.getElementById("stat-mach").textContent = state.get_mach();
   setMaxPulls(state.get_max_load());
+  setDefaultEngineOutput(state);
+}
+
+// Sticky by default: once a turn has resolved, the next turn's default is
+// whatever engine output actually got used last turn (itself possibly an
+// override), not always back to max -- matches how a throttle setting
+// tends to persist turn to turn unless deliberately changed.
+function setDefaultEngineOutput(state) {
+  const lastTurn = history.turns.length > 0 ? history.turns[history.turns.length - 1] : null;
+  const defaultValue = lastTurn ? lastTurn.engine_delta_ktas : state.get_engine_output();
+  document.getElementById("engine-output-input").value = round1(defaultValue);
 }
 
 function renderBreakdown(performance) {
+  const alphaNearLimit = performance.max_alpha - performance.alpha <= 3;
+
   const rows = [
-    ["Pulls", `${performance.segment_pulls} (${performance.gs} Gs)`],
-    ["Segment length", `${performance.segment_fp} / ${performance.initial_speed_fp}`],
-    ["Δ Altitude", performance.delta_altitude],
-    ["Alpha", round1(performance.alpha)],
-    ["Induced ΔKTAS", round1(performance.induced_delta_ktas)],
-    ["Gravity ΔKTAS", round1(performance.gravity_delta_ktas)],
-    ["Form ΔKTAS", round1(performance.form_delta_ktas)],
-    ["Engine ΔKTAS", round1(performance.engine_delta_ktas)],
-    ["New speed", `${Math.round(performance.new_state.ktas)} (${performance.new_speed_fp} FP)`],
+    ["Pulls", `${performance.segment_pulls} (${performance.gs} Gs)`, false],
+    ["Segment length", `${performance.segment_fp} / ${performance.initial_speed_fp}`, false],
+    ["Δ Altitude", performance.delta_altitude, false],
+    ["Alpha", `${round1(performance.alpha)} / ${round1(performance.max_alpha)}`, alphaNearLimit],
+    ["Induced ΔKTAS", round1(performance.induced_delta_ktas), false],
+    ["Gravity ΔKTAS", round1(performance.gravity_delta_ktas), false],
+    ["Form ΔKTAS", round1(performance.form_delta_ktas), false],
+    ["Engine ΔKTAS", round1(performance.engine_delta_ktas), false],
+    ["New speed", `${Math.round(performance.new_state.ktas)} (${performance.new_speed_fp} FP)`, false],
   ];
 
   const tbody = document.querySelector("#breakdown-table tbody");
   tbody.innerHTML = "";
-  for (const [label, value] of rows) {
+  for (const [label, value, warn] of rows) {
     const tr = document.createElement("tr");
+    if (warn) tr.classList.add("near-limit");
     tr.innerHTML = `<td>${label}</td><td>${value}</td>`;
     tbody.appendChild(tr);
   }
@@ -257,8 +271,10 @@ document.getElementById("resolve-turn-btn").addEventListener("click", () => {
   const deltaAltitude = stepperValue("delta-altitude");
   const segmentFpRaw = document.getElementById("segment-fp-input").value;
   const segmentFp = segmentFpRaw === "" ? null : parseInt(segmentFpRaw, 10);
+  const engineOutputRaw = document.getElementById("engine-output-input").value;
+  const engineOutput = engineOutputRaw === "" ? null : parseFloat(engineOutputRaw);
 
-  const performance = history.resolve_turn(pulls, segmentFp, deltaAltitude);
+  const performance = history.resolve_turn(pulls, segmentFp, deltaAltitude, engineOutput);
 
   renderState(history.current_state);
   renderBreakdown(performance);
