@@ -201,25 +201,15 @@ input:focus {
   font-size: 0.95rem;
 }
 
-details.advanced {
-  margin-bottom: 18px;
-}
-
-details.advanced summary {
-  color: var(--text-dim);
-  font-size: 0.85rem;
-  padding: 8px 0;
-}
-
 .hint-line {
   color: var(--text-dim);
   font-size: 0.8rem;
   margin: 0 0 8px;
 }
 
-/* ---------- engine output chart ---------- */
+/* ---------- boxed disclosure panels (advanced overrides, chart, breakdown) ---------- */
 
-.chart-panel {
+.panel-box {
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -228,13 +218,16 @@ details.advanced summary {
   overflow: hidden;
 }
 
-.chart-panel summary {
+.panel-box > summary {
   padding: 12px 0;
   font-size: 0.95rem;
   cursor: pointer;
   margin: 0 -14px;
   padding-left: 14px;
+  color: var(--text-dim);
 }
+
+/* ---------- engine output chart ---------- */
 
 #engine-chart {
   width: 100%;
@@ -325,21 +318,16 @@ details.advanced summary {
   letter-spacing: 0.04em;
 }
 
+.state-bar.danger .stat {
+  background: var(--danger);
+}
+
+.state-bar.danger .stat .value,
+.state-bar.danger .stat .label {
+  color: #fff;
+}
+
 /* ---------- breakdown ---------- */
-
-.breakdown {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  margin: 16px 0;
-  overflow: hidden;
-}
-
-.breakdown summary {
-  padding: 12px 14px;
-  font-size: 0.95rem;
-  cursor: pointer;
-}
 
 .breakdown table {
   width: 100%;
