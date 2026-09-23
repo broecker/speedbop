@@ -206,10 +206,16 @@ function updatePullsWarning() {
 // ---------------------------------------------------------------------
 
 function renderState(state) {
-  document.getElementById("stat-speed").textContent =
-    `${Math.round(state.ktas)} / ${speedbop.speed_fp_from_ktas(state.ktas)}`;
+  const fp = speedbop.speed_fp_from_ktas(state.ktas);
+  document.getElementById("stat-speed").textContent = `${Math.round(state.ktas)} / ${fp}`;
   document.getElementById("stat-altitude").textContent = state.altitude;
   document.getElementById("stat-mach").textContent = state.get_mach();
+
+  // A red status bar is meant to grab the eye at the one moment it matters --
+  // about to stall out (FP too low to maneuver) or about to hit the ground.
+  const critical = fp < 2 || state.altitude < 5;
+  document.querySelector(".state-bar").classList.toggle("danger", critical);
+
   setMaxPulls(state.get_max_load());
   setDefaultEngineOutput(state);
   renderEngineChart(state);
@@ -254,14 +260,20 @@ function buildEngineChartSvg(rows, currentAltitude, currentMach) {
   const plotW = width - padLeft - padRight;
   const plotH = height - padTop - padBottom;
 
-  // Extend the domain to always include the current point, even if it
-  // falls outside the chart's own digitized range (interpolate() clamps
-  // rather than extrapolates, but the marker should still be visible).
-  const machMax = Math.max(...rows.map((r) => r.mach), currentMach) * 1.05;
-  const altMax = Math.max(...rows.map((r) => r.altitude), currentAltitude) * 1.02;
+  // Domain is the chart's own digitized range only -- IsobarChart.interpolate()
+  // clamps an out-of-range query to the nearest edge rather than extrapolating,
+  // so the marker below is clamped the same way rather than stretching the
+  // axes to fit it (which would misleadingly suggest the chart extends there).
+  const rawMachMax = Math.max(...rows.map((r) => r.mach));
+  const rawAltMax = Math.max(...rows.map((r) => r.altitude));
+  const machMax = rawMachMax * 1.05;
+  const altMax = rawAltMax * 1.02;
 
   const x = (mach) => padLeft + (mach / machMax) * plotW;
   const y = (altitude) => padTop + plotH - (altitude / altMax) * plotH;
+
+  const markerMach = Math.min(Math.max(currentMach, 0), rawMachMax);
+  const markerAltitude = Math.min(Math.max(currentAltitude, 0), rawAltMax);
 
   const byOutput = new Map();
   for (const row of rows) {
@@ -293,8 +305,8 @@ function buildEngineChartSvg(rows, currentAltitude, currentMach) {
   `;
 
   const currentPoint =
-    `<circle class="current-point" cx="${x(currentMach).toFixed(1)}" ` +
-    `cy="${y(currentAltitude).toFixed(1)}" r="3.5"></circle>`;
+    `<circle class="current-point" cx="${x(markerMach).toFixed(1)}" ` +
+    `cy="${y(markerAltitude).toFixed(1)}" r="3.5"></circle>`;
 
   return (
     `<svg viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">` +
