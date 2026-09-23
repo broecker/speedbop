@@ -212,6 +212,10 @@ class TurnPerformance:
     def max_alpha(self) -> float:
         return self.old_state.adc.lift.alpha_max
 
+    @property
+    def max_engine_output(self) -> float:
+        return self.old_state.get_engine_output()
+
     def format(self) -> str:
         lines = [
             "-" * 79,
@@ -223,7 +227,7 @@ class TurnPerformance:
             f"Induced dKTAS: {round(self.induced_delta_ktas, 1)}",
             f"Grav    dKTAS: {round(self.gravity_delta_ktas, 1)}",
             f"Form    dKTAS: {round(self.form_delta_ktas, 1)}",
-            f"Engine  dKTAS: {round(self.engine_delta_ktas, 1)}",
+            f"Engine  dKTAS: {round(self.engine_delta_ktas, 1)} (max {self.max_engine_output})",
             f" => New speed: {round(self.new_state.ktas, 0)} ( {self.new_speed_fp} FP)",
             "-" * 79,
         ]
@@ -245,6 +249,10 @@ def calculate_performance(
 
     speed = speed_fp_from_ktas(state.get_keas())
     if segment_fp:
+        # A segment can't be longer than the FP your current speed actually
+        # allows, and a segment of length <= 0 makes the load division below
+        # meaningless -- clamp to [1, speed] rather than trusting the input.
+        segment_fp = max(1, min(segment_fp, speed))
         load = float(segment_pulls) / segment_fp * speed
     else:
         segment_fp = speed
@@ -258,8 +266,13 @@ def calculate_performance(
     gravity_delta_ktas = float(delta_altitude) / speed * 60 * -1
     form_delta_ktas = 0.0
     # A caller may set this explicitly (e.g. a throttle setting other than
-    # max), defaulting to the chart's max available output for this state.
-    engine_delta_ktas = state.get_engine_output() if engine_output is None else engine_output
+    # max), defaulting to -- and capped at -- the chart's max available
+    # output for this state, since you can't request more thrust than the
+    # engine actually has.
+    max_engine_output = state.get_engine_output()
+    engine_delta_ktas = (
+        max_engine_output if engine_output is None else min(engine_output, max_engine_output)
+    )
 
     new_ktas = (
         state.ktas

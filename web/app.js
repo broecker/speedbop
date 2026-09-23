@@ -212,6 +212,7 @@ function renderState(state) {
   document.getElementById("stat-mach").textContent = state.get_mach();
   setMaxPulls(state.get_max_load());
   setDefaultEngineOutput(state);
+  renderEngineChart(state);
 }
 
 // Sticky by default: once a turn has resolved, the next turn's default is
@@ -219,9 +220,86 @@ function renderState(state) {
 // override), not always back to max -- matches how a throttle setting
 // tends to persist turn to turn unless deliberately changed.
 function setDefaultEngineOutput(state) {
+  const maxOutput = state.get_engine_output();
   const lastTurn = history.turns.length > 0 ? history.turns[history.turns.length - 1] : null;
-  const defaultValue = lastTurn ? lastTurn.engine_delta_ktas : state.get_engine_output();
+  const defaultValue = lastTurn ? lastTurn.engine_delta_ktas : maxOutput;
+
   document.getElementById("engine-output-input").value = round1(defaultValue);
+  document.getElementById("max-engine-hint").textContent = `Max: ${maxOutput}`;
+}
+
+// ---------------------------------------------------------------------
+// Turn screen: engine output chart
+// ---------------------------------------------------------------------
+
+function renderEngineChart(state) {
+  const rows = state.adc.dry_engine_output.to_rows().toJs({ dict_converter: Object.fromEntries });
+  const currentAltitude = state.altitude;
+  const currentMach = state.get_mach();
+  const maxOutput = state.get_engine_output();
+
+  document.getElementById("engine-chart-caption").textContent =
+    `Current point: ${currentMach} mach @ ${currentAltitude} alt → max output ${maxOutput}`;
+  document.getElementById("engine-chart").innerHTML =
+    buildEngineChartSvg(rows, currentAltitude, currentMach);
+}
+
+function buildEngineChartSvg(rows, currentAltitude, currentMach) {
+  const width = 300;
+  const height = 200;
+  const padLeft = 28;
+  const padRight = 10;
+  const padTop = 10;
+  const padBottom = 20;
+  const plotW = width - padLeft - padRight;
+  const plotH = height - padTop - padBottom;
+
+  // Extend the domain to always include the current point, even if it
+  // falls outside the chart's own digitized range (interpolate() clamps
+  // rather than extrapolates, but the marker should still be visible).
+  const machMax = Math.max(...rows.map((r) => r.mach), currentMach) * 1.05;
+  const altMax = Math.max(...rows.map((r) => r.altitude), currentAltitude) * 1.02;
+
+  const x = (mach) => padLeft + (mach / machMax) * plotW;
+  const y = (altitude) => padTop + plotH - (altitude / altMax) * plotH;
+
+  const byOutput = new Map();
+  for (const row of rows) {
+    if (!byOutput.has(row.output)) byOutput.set(row.output, []);
+    byOutput.get(row.output).push(row);
+  }
+  const outputs = [...byOutput.keys()].sort((a, b) => a - b);
+  const outputMin = outputs[0];
+  const outputMax = outputs[outputs.length - 1];
+
+  let isobars = "";
+  for (const output of outputs) {
+    const points = byOutput.get(output).slice().sort((a, b) => a.altitude - b.altitude);
+    const frac = outputMax === outputMin ? 0 : (output - outputMin) / (outputMax - outputMin);
+    const hue = 210 - frac * 200; // low output = blue, high output = red
+    const path = points.map((p) => `${x(p.mach).toFixed(1)},${y(p.altitude).toFixed(1)}`).join(" ");
+    const last = points[points.length - 1];
+    isobars += `<polyline class="isobar-line" points="${path}" style="stroke: hsl(${hue} 70% 50%)"></polyline>`;
+    isobars += `<text class="isobar-label" x="${(x(last.mach) + 2).toFixed(1)}" y="${y(last.altitude).toFixed(1)}" style="fill: hsl(${hue} 70% 40%)">${output}</text>`;
+  }
+
+  const axes = `
+    <line class="axis-line" x1="${padLeft}" y1="${padTop}" x2="${padLeft}" y2="${padTop + plotH}"></line>
+    <line class="axis-line" x1="${padLeft}" y1="${padTop + plotH}" x2="${padLeft + plotW}" y2="${padTop + plotH}"></line>
+    <text x="${padLeft}" y="${height - 4}">0</text>
+    <text x="${padLeft + plotW}" y="${height - 4}" text-anchor="end">${machMax.toFixed(1)} mach</text>
+    <text x="2" y="${padTop + plotH}">0</text>
+    <text x="2" y="${padTop + 6}">${Math.round(altMax)} alt</text>
+  `;
+
+  const currentPoint =
+    `<circle class="current-point" cx="${x(currentMach).toFixed(1)}" ` +
+    `cy="${y(currentAltitude).toFixed(1)}" r="3.5"></circle>`;
+
+  return (
+    `<svg viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">` +
+    `${axes}${isobars}${currentPoint}</svg>`
+  );
 }
 
 function renderBreakdown(performance) {
