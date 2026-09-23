@@ -71,12 +71,13 @@
 
   <main>
     <div class="field">
-      <label>Pulls</label>
+      <label>Pulls <span id="max-pulls-hint" class="hint">Max: &mdash;</span></label>
       <div class="stepper" data-stepper="pulls" data-min="0" data-max="40">
         <button type="button" data-step="-1" aria-label="Decrease pulls">&minus;</button>
         <output>0</output>
         <button type="button" data-step="1" aria-label="Increase pulls">&plus;</button>
       </div>
+      <p id="pulls-warning" class="warning hidden"></p>
     </div>
 
     <div class="field">
@@ -96,7 +97,7 @@
     </details>
 
     <div class="bottom-action">
-      <button type="button" id="resolve-turn-btn" class="primary-btn">Resolve Turn</button>
+      <button type="button" id="resolve-turn-btn" class="primary-btn">Calculate Turn Performance</button>
     </div>
 
     <details class="breakdown" id="breakdown-panel">

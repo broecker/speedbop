@@ -136,6 +136,17 @@ main {
   margin-bottom: 6px;
 }
 
+.field label .hint {
+  float: right;
+  font-weight: 400;
+}
+
+.warning {
+  margin: 8px 0 0;
+  font-size: 0.85rem;
+  color: var(--danger);
+}
+
 select,
 input[type="number"] {
   width: 100%;

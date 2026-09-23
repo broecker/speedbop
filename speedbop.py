@@ -232,6 +232,12 @@ def calculate_performance(
     segment_fp: int | None = None,
     delta_altitude: int = 0,
 ) -> TurnPerformance:
+    # Structural load and sea level are hard limits, not suggestions -- clamp
+    # here so every caller gets them for free, not just ones that also apply
+    # the UI's own stepper limits.
+    segment_pulls = min(segment_pulls, state.get_max_load())
+    delta_altitude = max(delta_altitude, -state.altitude)
+
     speed = speed_fp_from_ktas(state.get_keas())
     if segment_fp:
         load = float(segment_pulls) / segment_fp * speed

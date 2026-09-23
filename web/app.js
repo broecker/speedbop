@@ -147,14 +147,17 @@ document.getElementById("setup-form").addEventListener("submit", (event) => {
 function initSteppers() {
   for (const stepper of document.querySelectorAll(".stepper")) {
     const output = stepper.querySelector("output");
-    const min = Number(stepper.dataset.min);
-    const max = Number(stepper.dataset.max);
-    let value = Number(output.textContent);
 
     for (const button of stepper.querySelectorAll("button")) {
       button.addEventListener("click", () => {
-        value = Math.min(max, Math.max(min, value + Number(button.dataset.step)));
-        output.textContent = String(value);
+        // Read min/max fresh from the dataset on every click, not just at
+        // init -- the pulls stepper's max changes turn to turn (see
+        // setMaxPulls), so a value captured once here would go stale.
+        const min = Number(stepper.dataset.min);
+        const max = Number(stepper.dataset.max);
+        const value = Number(output.textContent) + Number(button.dataset.step);
+        output.textContent = String(Math.min(max, Math.max(min, value)));
+        if (stepper.dataset.stepper === "pulls") updatePullsWarning();
       });
     }
   }
@@ -166,6 +169,39 @@ function stepperValue(name) {
 }
 
 // ---------------------------------------------------------------------
+// Turn screen: max pulls (structural load limit)
+// ---------------------------------------------------------------------
+
+function setMaxPulls(maxPulls) {
+  const stepper = document.querySelector('.stepper[data-stepper="pulls"]');
+  stepper.dataset.max = maxPulls;
+  document.getElementById("max-pulls-hint").textContent = `Max: ${maxPulls}`;
+
+  // The limit can drop between turns (e.g. slower speed -> lower max load)
+  // below whatever the stepper was still showing from the turn before.
+  const output = stepper.querySelector("output");
+  if (Number(output.textContent) > maxPulls) {
+    output.textContent = String(maxPulls);
+  }
+  updatePullsWarning();
+}
+
+function updatePullsWarning() {
+  const stepper = document.querySelector('.stepper[data-stepper="pulls"]');
+  const maxPulls = Number(stepper.dataset.max);
+  const pulls = Number(stepper.querySelector("output").textContent);
+  const warningEl = document.getElementById("pulls-warning");
+
+  const headroom = maxPulls - pulls;
+  if (pulls > 0 && headroom >= 0 && headroom <= 2) {
+    warningEl.textContent = `⚠ Close to max load -- ${maxPulls} pulls available`;
+    warningEl.classList.remove("hidden");
+  } else {
+    warningEl.classList.add("hidden");
+  }
+}
+
+// ---------------------------------------------------------------------
 // Turn screen: rendering
 // ---------------------------------------------------------------------
 
@@ -174,6 +210,7 @@ function renderState(state) {
     `${Math.round(state.ktas)} / ${speedbop.speed_fp_from_ktas(state.ktas)}`;
   document.getElementById("stat-altitude").textContent = state.altitude;
   document.getElementById("stat-mach").textContent = state.get_mach();
+  setMaxPulls(state.get_max_load());
 }
 
 function renderBreakdown(performance) {
