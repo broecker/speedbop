@@ -152,17 +152,20 @@ def test_load_isobars_groups_rows_by_output(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Real chart: e6b/engine.csv
+# Real chart: adc/j65-w-4b.csv
 # ---------------------------------------------------------------------------
 
 def test_real_engine_chart_loads_and_interpolates():
-    # Real digitized isobars from an aircraft data card's engine output vs.
-    # altitude/Mach chart. The first version of this data had isobars 65
-    # and 70 crossing around altitude=245 (output=70's altitude=310 point
-    # was originally transcribed as mach=0.6; the corrected chart has it
-    # at mach=0.26) -- confirmed fixed by the fact that this loads at all,
-    # since IsobarChart raises on any crossing.
-    chart = IsobarChart(load_isobars("e6b/engine.csv"))
+    # Real digitized isobars from the J65-W-4B engine's output vs.
+    # altitude/Mach chart (FJ-3M Fury's data card). The first version of
+    # this data had isobars 65 and 70 crossing around altitude=245
+    # (output=70's altitude=310 point was originally transcribed as
+    # mach=0.6; the corrected chart has it at mach=0.26) -- confirmed
+    # fixed by the fact that this loads at all, since IsobarChart raises
+    # on any crossing. Originally lived at e6b/engine.csv, later moved
+    # under adc/ since it's aircraft-specific data, not a general E6B
+    # example.
+    chart = IsobarChart(load_isobars("adc/j65-w-4b.csv"))
 
     assert len(chart.isobars) == 10
 

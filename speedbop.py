@@ -15,7 +15,9 @@ def _dataclass_from_dict(klass, d):
 
     try:
         fieldtypes = {f.name: f.type for f in dataclasses.fields(klass)}
-        return klass(**{f: _dataclass_from_dict(fieldtypes[f], d[f]) for f in d})
+        return klass(**{
+            f: _dataclass_from_dict(fieldtypes[f], d[f]) for f in d if f in fieldtypes
+        })
     except:
         return d  # Not a dataclass field
 
@@ -175,12 +177,61 @@ def gs_from_pulls(pulls: int) -> float:
     return round(pulls / 3, 1)
 
 
+@dataclass(frozen=True)
+class TurnPerformance:
+    """The result of resolving one turn's movement via calculate_performance().
+
+    Captures every intermediate value that used to only exist as a print()
+    statement, so a caller (a web UI, a turn history log) can inspect the
+    breakdown instead of just the final state.
+    """
+
+    segment_pulls: int
+    segment_fp: int
+    initial_speed_fp: int
+    delta_altitude: int
+
+    alpha: float
+    induced_delta_ktas: float
+    gravity_delta_ktas: float
+    form_delta_ktas: float
+    engine_delta_ktas: float
+
+    old_state: AircraftState
+    new_state: AircraftState
+
+    @property
+    def gs(self) -> float:
+        return gs_from_pulls(self.segment_pulls)
+
+    @property
+    def new_speed_fp(self) -> int:
+        return speed_fp_from_ktas(self.new_state.get_keas())
+
+    def format(self) -> str:
+        lines = [
+            "-" * 79,
+            "[Performance]",
+            f"Pulls:         {self.segment_pulls} ( {self.gs} Gs)",
+            f"Segment length {self.segment_fp} / {self.initial_speed_fp}",
+            f"DAlt:          {self.delta_altitude}",
+            f"Alpha:         {round(self.alpha, 1)}",
+            f"Induced dKTAS: {round(self.induced_delta_ktas, 1)}",
+            f"Grav    dKTAS: {round(self.gravity_delta_ktas, 1)}",
+            f"Form    dKTAS: {round(self.form_delta_ktas, 1)}",
+            f"Engine  dKTAS: {round(self.engine_delta_ktas, 1)}",
+            f" => New speed: {round(self.new_state.ktas, 0)} ( {self.new_speed_fp} FP)",
+            "-" * 79,
+        ]
+        return "\n".join(lines)
+
+
 def calculate_performance(
     state: AircraftState,
     segment_pulls: int,
     segment_fp: int | None = None,
     delta_altitude: int = 0,
-) -> AircraftState:
+) -> TurnPerformance:
     speed = speed_fp_from_ktas(state.get_keas())
     if segment_fp:
         load = float(segment_pulls) / segment_fp * speed
@@ -193,40 +244,63 @@ def calculate_performance(
     dl = alpha / state.get_ids() * load * 100
     induced_delta_ktas = dl / speed * segment_fp
 
-    print("DAlt:", delta_altitude)
     gravity_delta_ktas = float(delta_altitude) / speed * 60 * -1
-    print("Grav:", gravity_delta_ktas)
-
-    form_delta_ktas = 0
-
+    form_delta_ktas = 0.0
     engine_delta_ktas = state.get_engine_output()
 
-    print("-" * 79)
-    print("[Performance]")
-    print("Pulls:        ", segment_pulls, "(", gs_from_pulls(segment_pulls), " Gs)")
-    print("Segment length", segment_fp, "/", speed_fp_from_ktas(state.get_keas()))
-
-    print("Alpha:        ", round(alpha, 1))
-    print("Induced dKTAS:", round(induced_delta_ktas, 1))
-    print("Grav    dKTAS:", round(gravity_delta_ktas, 1))
-    print("Form    dKTAS:", round(form_delta_ktas, 1))
-    print("Engine  dKTAS:", round(engine_delta_ktas, 1))
-
     new_ktas = state.ktas - induced_delta_ktas + gravity_delta_ktas - form_delta_ktas
+    new_altitude = state.altitude + delta_altitude
+    new_state = dataclasses.replace(state, ktas=new_ktas, altitude=new_altitude)
 
-    new_state = state
-    new_state.ktas = new_ktas
-
-    print(
-        " => New speed:",
-        round(new_state.ktas, 0),
-        "(",
-        speed_fp_from_ktas(new_state.get_keas()),
-        "FP)",
+    return TurnPerformance(
+        segment_pulls=segment_pulls,
+        segment_fp=segment_fp,
+        initial_speed_fp=speed,
+        delta_altitude=delta_altitude,
+        alpha=alpha,
+        induced_delta_ktas=induced_delta_ktas,
+        gravity_delta_ktas=gravity_delta_ktas,
+        form_delta_ktas=form_delta_ktas,
+        engine_delta_ktas=engine_delta_ktas,
+        old_state=state,
+        new_state=new_state,
     )
-    print("-" * 79)
 
-    return new_state
+
+@dataclass
+class PerformanceHistory:
+    """Tracks an aircraft's state turn by turn.
+
+    Set up once with the starting state, then call resolve_turn()
+    repeatedly -- it threads state through calculate_performance()
+    automatically, so a caller (e.g. a web UI) never has to pass the
+    updated state back in manually.
+    """
+
+    initial_state: AircraftState
+    turns: list[TurnPerformance] = dataclasses.field(default_factory=list)
+
+    @property
+    def current_state(self) -> AircraftState:
+        return self.turns[-1].new_state if self.turns else self.initial_state
+
+    def resolve_turn(
+        self,
+        segment_pulls: int,
+        segment_fp: int | None = None,
+        delta_altitude: int = 0,
+    ) -> TurnPerformance:
+        performance = calculate_performance(
+            self.current_state,
+            segment_pulls,
+            segment_fp=segment_fp,
+            delta_altitude=delta_altitude,
+        )
+        self.turns.append(performance)
+        return performance
+
+    def format(self) -> str:
+        return "\n".join(turn.format() for turn in self.turns)
 
 
 def main() -> None:
@@ -245,7 +319,9 @@ def main() -> None:
     print("Max load:", state.get_max_load())
     print("Corner speed:", state.calculate_corner_speed())
 
-    calculate_performance(state, segment_pulls=22, delta_altitude=-15)
+    history = PerformanceHistory(state)
+    performance = history.resolve_turn(segment_pulls=22, delta_altitude=-15)
+    print(performance.format())
 
 
 if __name__ == "__main__":

@@ -9,18 +9,20 @@ import speedbop
 from speedbop import (
     AircraftDataCard,
     AircraftState,
+    PerformanceHistory,
+    TurnPerformance,
     _bop_tablerow_lookup,
     _dataclass_from_dict,
+    calculate_performance,
     keas_from_q,
     ktas_from_keas,
     ktas_from_q,
     q_from_smash,
 )
-from e6b.chart import IsobarChart, load_isobars
+from e6b.chart import Isobar, IsobarChart, load_isobars
 
 REPO_ROOT = pathlib.Path(__file__).parent.parent
 REAL_ADC_PATH = REPO_ROOT / "adc" / "fj-3m.json"
-REAL_ENGINE_CHART_PATH = REPO_ROOT / "e6b" / "engine.csv"
 
 
 # ---------------------------------------------------------------------------
@@ -50,10 +52,13 @@ def test_dataclass_from_dict_builds_nested_dataclasses():
     assert isinstance(result.inner, Inner)
 
 
-def test_dataclass_from_dict_silently_skips_conversion_on_extra_key():
-    # A key not in the dataclass's fields makes fieldtypes[f] raise KeyError
-    # -- caught by the bare `except:`, so the WHOLE object silently falls
-    # back to the raw dict instead of raising or ignoring just that key.
+def test_dataclass_from_dict_ignores_unrecognized_extra_keys():
+    # A key not in the dataclass's fields is skipped, rather than (as
+    # before this fix) causing the WHOLE object to silently fall back to
+    # the raw dict via the bare `except:`. This was a real production bug:
+    # adc/fj-3m.json gained a "form_table" key ahead of any code consuming
+    # it, which broke AircraftDataCard.from_json() (and therefore main())
+    # entirely -- confirmed and fixed in this session.
     @dataclasses.dataclass(frozen=True)
     class Simple:
         x: float
@@ -62,13 +67,14 @@ def test_dataclass_from_dict_silently_skips_conversion_on_extra_key():
 
     result = _dataclass_from_dict(Simple, d)
 
-    assert result is d
-    assert not isinstance(result, Simple)
+    assert result == Simple(x=1.0)
 
 
 def test_dataclass_from_dict_silently_skips_conversion_on_missing_key():
     # A missing required field makes klass(**{...}) raise TypeError --
-    # also caught by the bare `except:`, same silent fallback as above.
+    # caught by the bare `except:`, so the whole object falls back to the
+    # raw dict. Unlike the extra-key case above, this one is NOT fixed --
+    # documented here as a known remaining gotcha.
     @dataclasses.dataclass(frozen=True)
     class Simple:
         x: float
@@ -136,6 +142,10 @@ def _make_adc(**overrides):
         ),
         characteristics=AircraftDataCard.Characteristics(wing_area=2.0, combat_safe_load=10.0),
         stores=AircraftDataCard.Stores(combat_weight=5.0),
+        dry_engine_output=IsobarChart([
+            Isobar(output=30.0, altitude=[0.0, 100.0], mach=[0.3, 0.9]),
+            Isobar(output=60.0, altitude=[0.0, 100.0], mach=[0.1, 0.5]),
+        ]),
     )
     defaults.update(overrides)
     return AircraftDataCard(**defaults)
@@ -155,6 +165,13 @@ def test_aircraft_data_card_is_frozen():
 
 
 def test_aircraft_data_card_from_json_builds_nested_dataclasses(tmp_path):
+    (tmp_path / "engine.csv").write_text(
+        "output,altitude,mach\n"
+        "10,0,0.5\n"
+        "10,100,1.0\n"
+        "20,0,0.2\n"
+        "20,100,0.6\n"
+    )
     path = tmp_path / "plane.json"
     path.write_text(json.dumps({
         "name": "Test Plane",
@@ -162,6 +179,7 @@ def test_aircraft_data_card_from_json_builds_nested_dataclasses(tmp_path):
         "lift": {"alpha_max": 15.0, "mach_lcs_ids_table": {"0.5": [4.0, 100]}},
         "characteristics": {"wing_area": 4.0, "combat_safe_load": 12.0},
         "stores": {"combat_weight": 8.5},
+        "dry_engine_output": "engine.csv",
     }))
 
     adc = AircraftDataCard.from_json(path)
@@ -175,6 +193,28 @@ def test_aircraft_data_card_from_json_builds_nested_dataclasses(tmp_path):
     assert adc.characteristics.combat_safe_load == 12.0
     assert isinstance(adc.stores, AircraftDataCard.Stores)
     assert adc.stores.combat_weight == 8.5
+    assert isinstance(adc.dry_engine_output, IsobarChart)
+    assert adc.dry_engine_output.interpolate(altitude=0, mach=0.5) == pytest.approx(10.0)
+
+
+def test_aircraft_data_card_from_json_requires_dry_engine_output_key(tmp_path):
+    # from_json's chart-loading step indexes adc_dict["dry_engine_output"]
+    # directly (not .get()), outside _dataclass_from_dict's lenient bare
+    # except -- so a data card with no engine chart at all currently
+    # crashes hard rather than loading with a missing/empty chart. Worth
+    # revisiting if some future aircraft shouldn't need one; documented
+    # here rather than silently changed.
+    path = tmp_path / "plane.json"
+    path.write_text(json.dumps({
+        "name": "Test Plane",
+        "version": "2.3",
+        "lift": {"alpha_max": 15.0, "mach_lcs_ids_table": {"0.5": [4.0, 100]}},
+        "characteristics": {"wing_area": 4.0, "combat_safe_load": 12.0},
+        "stores": {"combat_weight": 8.5},
+    }))
+
+    with pytest.raises(KeyError, match="dry_engine_output"):
+        AircraftDataCard.from_json(path)
 
 
 def test_aircraft_data_card_from_json_reads_real_fixture():
@@ -188,6 +228,7 @@ def test_aircraft_data_card_from_json_reads_real_fixture():
     assert adc.stores.combat_weight == pytest.approx(15.7)
     assert adc.lift.alpha_max == pytest.approx(22.4)
     assert adc.lift.mach_lcs_ids_table["0.84"] == [3.8, 232]
+    assert isinstance(adc.dry_engine_output, IsobarChart)
 
 
 # ---------------------------------------------------------------------------
@@ -283,15 +324,23 @@ def test_get_lcs_looks_up_by_mach():
     assert state.get_lcs() == pytest.approx(4.0)
 
 
-def test_get_engine_output_matches_the_isobar_chart_directly():
-    # get_engine_output() should be a thin wrapper: same altitude/mach in,
-    # same result as calling the chart directly.
+def test_get_ids_looks_up_by_mach():
+    # Same lookup as get_lcs(), but takes the table row's second element.
     state = _make_state(ktas=337.3, altitude=0)
-    chart = IsobarChart(load_isobars(str(REAL_ENGINE_CHART_PATH)))
 
-    assert state.get_engine_output() == pytest.approx(
-        chart.interpolate(altitude=state.altitude, mach=state.get_mach())
+    assert state.get_mach() == pytest.approx(0.5)
+    assert state.get_ids() == pytest.approx(100)
+
+
+def test_get_engine_output_matches_the_isobar_chart_directly():
+    # get_engine_output() should be a thin, rounded wrapper around the
+    # chart embedded in the aircraft's own data card.
+    state = _make_state(ktas=337.3, altitude=0)
+
+    expected = round(
+        state.adc.dry_engine_output.interpolate(altitude=state.altitude, mach=state.get_mach()), 1
     )
+    assert state.get_engine_output() == pytest.approx(expected)
 
 
 @pytest.mark.parametrize("ktas,expected", [
@@ -322,10 +371,129 @@ def test_aircraft_state_against_real_fixture():
     assert state.get_smash() == pytest.approx(round(10.0 * expected_q / 58.0, 1))
     assert speedbop.speed_fp_from_ktas(state.ktas) == 12
     assert state.get_mach() == pytest.approx(0.8)
-    assert state.get_engine_output() == pytest.approx(45.864416008712226)
+    assert state.get_engine_output() == pytest.approx(45.9)
     assert state.get_lcs() == pytest.approx(3.8)
     assert state.get_max_load() == 48
     assert state.calculate_corner_speed() == 246
+
+
+# ---------------------------------------------------------------------------
+# calculate_performance / TurnPerformance
+# ---------------------------------------------------------------------------
+
+def test_calculate_performance_does_not_mutate_the_input_state():
+    # Regression test: calculate_performance used to do `new_state = state;
+    # new_state.ktas = new_ktas`, which is aliasing, not a copy -- it
+    # silently mutated the caller's original state object too.
+    state = _make_state(ktas=485.0, altitude=75)
+    original_ktas, original_altitude = state.ktas, state.altitude
+
+    calculate_performance(state, segment_pulls=22, delta_altitude=-15)
+
+    assert state.ktas == original_ktas
+    assert state.altitude == original_altitude
+
+
+def test_calculate_performance_updates_altitude_by_delta():
+    # Regression test: delta_altitude used to only affect the gravity
+    # term, never actually advancing state.altitude itself.
+    state = _make_state(ktas=485.0, altitude=75)
+
+    performance = calculate_performance(state, segment_pulls=22, delta_altitude=-15)
+
+    assert performance.new_state.altitude == 75 - 15
+
+
+def test_calculate_performance_new_ktas_matches_the_reported_breakdown():
+    state = _make_state(ktas=485.0, altitude=75)
+
+    performance = calculate_performance(state, segment_pulls=22, delta_altitude=-15)
+
+    expected_new_ktas = (
+        state.ktas
+        - performance.induced_delta_ktas
+        + performance.gravity_delta_ktas
+        - performance.form_delta_ktas
+    )
+    assert performance.new_state.ktas == pytest.approx(expected_new_ktas)
+
+
+def test_calculate_performance_keeps_adc_and_weight_unchanged():
+    state = _make_state(ktas=485.0, altitude=75, weight=17.4)
+
+    performance = calculate_performance(state, segment_pulls=22, delta_altitude=-15)
+
+    assert performance.new_state.adc is state.adc
+    assert performance.new_state.weight == state.weight
+
+
+def test_turn_performance_gs_and_new_speed_fp():
+    state = _make_state(ktas=485.0, altitude=75)
+
+    performance = calculate_performance(state, segment_pulls=21, delta_altitude=0)
+
+    assert performance.gs == pytest.approx(7.0)  # 21 pulls / 3
+    assert performance.new_speed_fp == speedbop.speed_fp_from_ktas(performance.new_state.get_keas())
+
+
+def test_turn_performance_is_frozen():
+    state = _make_state(ktas=485.0, altitude=75)
+    performance = calculate_performance(state, segment_pulls=22, delta_altitude=-15)
+
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        performance.segment_pulls = 0
+
+
+def test_turn_performance_format_includes_key_numbers():
+    state = _make_state(ktas=485.0, altitude=75)
+    performance = calculate_performance(state, segment_pulls=22, delta_altitude=-15)
+
+    text = performance.format()
+
+    assert "[Performance]" in text
+    assert "Pulls:         22" in text
+    assert "DAlt:          -15" in text
+
+
+# ---------------------------------------------------------------------------
+# PerformanceHistory
+# ---------------------------------------------------------------------------
+
+def test_performance_history_current_state_starts_as_initial_state():
+    state = _make_state(ktas=485.0, altitude=75)
+    history = PerformanceHistory(state)
+
+    assert history.current_state is state
+    assert history.turns == []
+
+
+def test_performance_history_resolve_turn_chains_state_automatically():
+    # The whole point: a caller sets state once and calls resolve_turn()
+    # repeatedly without manually threading the returned state back in.
+    state = _make_state(ktas=485.0, altitude=75)
+    history = PerformanceHistory(state)
+
+    p1 = history.resolve_turn(segment_pulls=22, delta_altitude=-15)
+    assert history.current_state is p1.new_state
+    assert history.current_state.altitude == 60
+
+    p2 = history.resolve_turn(segment_pulls=10, delta_altitude=5)
+    assert history.current_state is p2.new_state
+    assert history.current_state.altitude == 65
+    # the second turn's inputs were the FIRST turn's result, not the
+    # original state -- confirms chaining, not independent calls
+    assert p2.old_state is p1.new_state
+
+    assert history.turns == [p1, p2]
+
+
+def test_performance_history_format_joins_every_turn():
+    state = _make_state(ktas=485.0, altitude=75)
+    history = PerformanceHistory(state)
+    history.resolve_turn(segment_pulls=22, delta_altitude=-15)
+    history.resolve_turn(segment_pulls=10, delta_altitude=5)
+
+    assert history.format().count("[Performance]") == 2
 
 
 # ---------------------------------------------------------------------------
@@ -384,11 +552,9 @@ def test_inverse_helpers_round_trip_the_real_fixture_within_rounding_error():
 # ---------------------------------------------------------------------------
 
 def test_main_runs_and_prints_expected_values(capsys, monkeypatch):
-    # main() hardcodes "adc/fj-3m.json" and "e6b/engine.csv" relative to
-    # the CWD, not to this file, so it only resolves correctly when run
-    # from the repo root.
+    # main() hardcodes "adc/fj-3m.json" relative to the CWD, not to this
+    # file, so it only resolves correctly when run from the repo root.
     monkeypatch.chdir(REPO_ROOT)
-    speedbop._engine_chart = None  # force a fresh load under the new CWD
 
     speedbop.main()
 
@@ -400,7 +566,9 @@ def test_main_runs_and_prints_expected_values(capsys, monkeypatch):
     assert "Q: 48.2" in out
     assert "Smash: 8.3" in out
     assert "Mach: 0.8" in out
-    assert "Engine output: 45.86" in out
+    assert "Engine output: 45.9" in out
     assert "LCS: 3.8" in out
     assert "Max load: 48" in out
     assert "Corner speed: 246" in out
+    assert "[Performance]" in out
+    assert "Pulls:         22" in out
