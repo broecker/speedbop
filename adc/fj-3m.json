@@ -5,6 +5,12 @@
     "wing_area": 3.0,
     "combat_safe_load": 21
   },
+  "form_table": {
+    "0.72": 19,
+    "0.76": 21,
+
+    "brake": "33"
+  },
   "lift": {
     "alpha_max": 22.4,
     "mach_lcs_ids_table": {
