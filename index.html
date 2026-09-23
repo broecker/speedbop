@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Speedbop</title>
+<link rel="stylesheet" href="web/style.css">
+</head>
+<body>
+
+<div id="loading">
+  <div class="spinner" aria-hidden="true"></div>
+  <p id="loading-status">Loading Python runtime&hellip;</p>
+  <p id="loading-error" class="hidden"></p>
+</div>
+
+<!-- ============================== SETUP ============================== -->
+<section id="setup-screen" class="screen hidden">
+  <header class="top-bar">
+    <h1>Speedbop</h1>
+    <p class="subtitle">Set up your aircraft to begin</p>
+  </header>
+  <main>
+    <form id="setup-form">
+      <div class="field">
+        <label for="aircraft-select">Aircraft</label>
+        <select id="aircraft-select" required></select>
+      </div>
+
+      <div class="field">
+        <label for="weight-input">Weight</label>
+        <input id="weight-input" type="number" inputmode="decimal" step="0.1" value="17.4" required>
+      </div>
+
+      <div class="field">
+        <label for="ktas-input">Starting KTAS</label>
+        <input id="ktas-input" type="number" inputmode="decimal" step="1" value="485" required>
+      </div>
+
+      <div class="field">
+        <label for="altitude-input">Starting altitude</label>
+        <input id="altitude-input" type="number" inputmode="numeric" step="1" value="75" required>
+      </div>
+
+      <div class="bottom-action">
+        <button type="submit" class="primary-btn">Start</button>
+      </div>
+    </form>
+  </main>
+</section>
+
+<!-- ============================== TURN ============================== -->
+<section id="turn-screen" class="screen hidden">
+  <header class="top-bar">
+    <h1 id="turn-aircraft-name">Speedbop</h1>
+    <div class="state-bar">
+      <div class="stat">
+        <div class="value" id="stat-speed">&mdash;</div>
+        <div class="label">KTAS / FP</div>
+      </div>
+      <div class="stat">
+        <div class="value" id="stat-altitude">&mdash;</div>
+        <div class="label">Altitude</div>
+      </div>
+      <div class="stat">
+        <div class="value" id="stat-mach">&mdash;</div>
+        <div class="label">Mach</div>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <div class="field">
+      <label>Pulls</label>
+      <div class="stepper" data-stepper="pulls" data-min="0" data-max="40">
+        <button type="button" data-step="-1" aria-label="Decrease pulls">&minus;</button>
+        <output>0</output>
+        <button type="button" data-step="1" aria-label="Increase pulls">&plus;</button>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>&Delta; Altitude</label>
+      <div class="stepper" data-stepper="delta-altitude" data-min="-50" data-max="50" data-step-size="5">
+        <button type="button" data-step="-5" aria-label="Decrease altitude change">&minus;</button>
+        <output>0</output>
+        <button type="button" data-step="5" aria-label="Increase altitude change">&plus;</button>
+      </div>
+    </div>
+
+    <details class="advanced">
+      <summary>Advanced: segment FP override</summary>
+      <div class="field">
+        <input id="segment-fp-input" type="number" inputmode="numeric" step="1" placeholder="auto (current speed FP)">
+      </div>
+    </details>
+
+    <div class="bottom-action">
+      <button type="button" id="resolve-turn-btn" class="primary-btn">Resolve Turn</button>
+    </div>
+
+    <details class="breakdown" id="breakdown-panel">
+      <summary>Last turn breakdown</summary>
+      <table id="breakdown-table">
+        <tbody></tbody>
+      </table>
+    </details>
+
+    <div class="history">
+      <h2>History</h2>
+      <ol id="history-list" reversed></ol>
+    </div>
+  </main>
+</section>
+
+<script src="https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.js"></script>
+<script type="module" src="web/app.js"></script>
+</body>
+</html>

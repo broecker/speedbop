@@ -17,7 +17,12 @@ isobars the same way you'd read the chart by hand:
 Both steps are the same primitive (1D linear interpolation) with the axes
 swapped. This module rolls its own interpolation (no numpy/scipy) since a
 handful of digitized points and two linear-interpolation passes don't need
-either dependency.
+either dependency -- deliberately: unlike e6b/fit.py (a numpy/scipy-heavy
+dev-time tool for deriving formulas offline), this module is imported by
+speedbop.py itself and runs at actual gameplay time, including inside
+Pyodide in the browser. It lives at the repo root rather than inside e6b/
+for exactly that reason: e6b/ is the offline formula-derivation toolkit,
+never imported by speedbop.py, while this is a runtime dependency.
 
 Isobars must not cross one another -- IsobarChart checks this once at
 construction, across every digitized altitude (not just a single query

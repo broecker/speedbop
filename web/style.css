@@ -1,0 +1,327 @@
+:root {
+  --bg: #0f1418;
+  --panel: #171e24;
+  --panel-raised: #1f2830;
+  --border: #2a343d;
+  --text: #e8edf1;
+  --text-dim: #93a3ae;
+  --accent: #4fb0ff;
+  --accent-text: #04141f;
+  --danger: #ff6b6b;
+  --radius: 12px;
+  --gutter: 16px;
+  --tap: 48px;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f4f6f8;
+    --panel: #ffffff;
+    --panel-raised: #eef2f5;
+    --border: #d7dee3;
+    --text: #101820;
+    --text-dim: #5b6b76;
+    --accent: #0b74c4;
+    --accent-text: #ffffff;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  min-height: 100dvh;
+  overflow-x: hidden;
+}
+
+.hidden {
+  display: none !important;
+}
+
+/* ---------- loading ---------- */
+
+#loading {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: var(--gutter);
+  text-align: center;
+}
+
+#loading .spinner {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+#loading-status {
+  color: var(--text-dim);
+  font-size: 0.95rem;
+}
+
+#loading-error {
+  color: var(--danger);
+  font-size: 0.9rem;
+  max-width: 32em;
+}
+
+/* ---------- shared screen layout ---------- */
+
+.screen {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+header.top-bar {
+  padding: max(12px, env(safe-area-inset-top)) var(--gutter) 12px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+
+h1 {
+  font-size: 1.1rem;
+  margin: 0 0 4px;
+}
+
+.subtitle {
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  margin: 0;
+}
+
+main {
+  flex: 1;
+  padding: var(--gutter);
+  padding-bottom: calc(var(--gutter) * 2);
+  overflow-y: auto;
+}
+
+/* ---------- form controls ---------- */
+
+.field {
+  margin-bottom: 18px;
+}
+
+.field label {
+  display: block;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+}
+
+select,
+input[type="number"] {
+  width: 100%;
+  font-size: 1.05rem;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--panel-raised);
+  color: var(--text);
+  min-height: var(--tap);
+}
+
+select:focus,
+input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* ---------- stepper ---------- */
+
+.stepper {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.stepper button {
+  width: var(--tap);
+  height: var(--tap);
+  flex: 0 0 var(--tap);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--panel-raised);
+  color: var(--text);
+  font-size: 1.4rem;
+  line-height: 1;
+}
+
+.stepper button:active {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.stepper output {
+  flex: 1;
+  text-align: center;
+  font-size: 1.3rem;
+  font-variant-numeric: tabular-nums;
+}
+
+details.advanced {
+  margin-bottom: 18px;
+}
+
+details.advanced summary {
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  padding: 8px 0;
+}
+
+/* ---------- buttons ---------- */
+
+.primary-btn {
+  display: block;
+  width: 100%;
+  min-height: var(--tap);
+  padding: 14px;
+  font-size: 1.1rem;
+  font-weight: 600;
+  border: none;
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.primary-btn:active {
+  filter: brightness(0.9);
+}
+
+.bottom-action {
+  position: sticky;
+  bottom: 0;
+  padding: 12px var(--gutter) max(12px, env(safe-area-inset-bottom));
+  background: linear-gradient(to top, var(--bg) 60%, transparent);
+}
+
+/* ---------- state bar (turn screen) ---------- */
+
+.state-bar {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.state-bar .stat {
+  background: var(--panel-raised);
+  border-radius: var(--radius);
+  padding: 10px 8px;
+  text-align: center;
+}
+
+.state-bar .stat .value {
+  font-size: 1.4rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.state-bar .stat .label {
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* ---------- breakdown ---------- */
+
+.breakdown {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin: 16px 0;
+  overflow: hidden;
+}
+
+.breakdown summary {
+  padding: 12px 14px;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+
+.breakdown table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.breakdown td {
+  padding: 6px 14px;
+  border-top: 1px solid var(--border);
+}
+
+.breakdown td:last-child {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- history log ---------- */
+
+.history {
+  margin-top: 8px;
+}
+
+.history h2 {
+  font-size: 0.85rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 0 0 8px;
+}
+
+.history ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.history li {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  font-size: 0.9rem;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.history .turn-no {
+  color: var(--text-dim);
+  flex: 0 0 auto;
+}
+
+.history .turn-detail {
+  color: var(--text-dim);
+  font-size: 0.8rem;
+}
