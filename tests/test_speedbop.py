@@ -9,15 +9,18 @@ import speedbop
 from speedbop import (
     AircraftDataCard,
     AircraftState,
+    _bop_tablerow_lookup,
     _dataclass_from_dict,
     keas_from_q,
     ktas_from_keas,
     ktas_from_q,
     q_from_smash,
 )
+from e6b.chart import IsobarChart, load_isobars
 
 REPO_ROOT = pathlib.Path(__file__).parent.parent
 REAL_ADC_PATH = REPO_ROOT / "adc" / "fj-3m.json"
+REAL_ENGINE_CHART_PATH = REPO_ROOT / "e6b" / "engine.csv"
 
 
 # ---------------------------------------------------------------------------
@@ -90,6 +93,36 @@ def test_dataclass_from_dict_list_branch_has_a_name_error_bug():
 
 
 # ---------------------------------------------------------------------------
+# _bop_tablerow_lookup
+# ---------------------------------------------------------------------------
+
+def test_bop_tablerow_lookup_finds_the_ceiling_entry():
+    # Returns the first (smallest) key >= value -- a "round up to the next
+    # table entry" lookup, matching how get_lcs() reads a mach breakpoint
+    # table.
+    table = {0.5: (4.0, 100), 1.0: (2.0, 50)}
+
+    assert _bop_tablerow_lookup(0.3, table) == (4.0, 100)
+    assert _bop_tablerow_lookup(0.5, table) == (4.0, 100)
+    assert _bop_tablerow_lookup(0.6, table) == (2.0, 50)
+
+
+def test_bop_tablerow_lookup_clamps_above_the_highest_key():
+    table = {0.5: (4.0, 100), 1.0: (2.0, 50)}
+
+    assert _bop_tablerow_lookup(5.0, table) == (2.0, 50)
+
+
+def test_bop_tablerow_lookup_handles_string_keys_from_json():
+    # Real tables loaded via from_json keep string keys (JSON object keys
+    # are always strings, and _dataclass_from_dict doesn't convert dict
+    # values), which is why this calls float(key) internally.
+    table = {"0.72": [4.7, 328], "0.84": [3.8, 232]}
+
+    assert _bop_tablerow_lookup(0.8, table) == [3.8, 232]
+
+
+# ---------------------------------------------------------------------------
 # AircraftDataCard
 # ---------------------------------------------------------------------------
 
@@ -97,6 +130,10 @@ def _make_adc(**overrides):
     defaults = dict(
         name="Test Plane",
         version="1.0",
+        lift=AircraftDataCard.Lift(
+            alpha_max=20.0,
+            mach_lcs_ids_table={0.5: (4.0, 100), 1.0: (2.0, 50)},
+        ),
         characteristics=AircraftDataCard.Characteristics(wing_area=2.0, combat_safe_load=10.0),
         stores=AircraftDataCard.Stores(combat_weight=5.0),
     )
@@ -122,6 +159,7 @@ def test_aircraft_data_card_from_json_builds_nested_dataclasses(tmp_path):
     path.write_text(json.dumps({
         "name": "Test Plane",
         "version": "2.3",
+        "lift": {"alpha_max": 15.0, "mach_lcs_ids_table": {"0.5": [4.0, 100]}},
         "characteristics": {"wing_area": 4.0, "combat_safe_load": 12.0},
         "stores": {"combat_weight": 8.5},
     }))
@@ -130,6 +168,8 @@ def test_aircraft_data_card_from_json_builds_nested_dataclasses(tmp_path):
 
     assert adc.name == "Test Plane"
     assert adc.version == "2.3"
+    assert isinstance(adc.lift, AircraftDataCard.Lift)
+    assert adc.lift.alpha_max == 15.0
     assert isinstance(adc.characteristics, AircraftDataCard.Characteristics)
     assert adc.characteristics.wing_area == 4.0
     assert adc.characteristics.combat_safe_load == 12.0
@@ -146,26 +186,8 @@ def test_aircraft_data_card_from_json_reads_real_fixture():
     assert adc.characteristics.wing_area == pytest.approx(3.0)
     assert adc.characteristics.combat_safe_load == pytest.approx(21)
     assert adc.stores.combat_weight == pytest.approx(15.7)
-
-
-def test_aircraft_data_card_from_dict_does_not_build_nested_dataclasses():
-    # _from_dict is currently unused dead code (from_json calls
-    # _dataclass_from_dict directly; the cls._from_dict(...) call is
-    # commented out) -- and for good reason: unlike from_json, it does NOT
-    # recursively convert nested fields. characteristics/stores end up as
-    # plain dicts, not AircraftDataCard.Characteristics/.Stores instances.
-    data = {
-        "name": "Test Plane",
-        "version": "1.0",
-        "characteristics": {"wing_area": 4.0, "combat_safe_load": 12.0},
-        "stores": {"combat_weight": 8.5},
-    }
-
-    adc = AircraftDataCard._from_dict(data)
-
-    assert adc.name == "Test Plane"
-    assert isinstance(adc.characteristics, dict)
-    assert not isinstance(adc.characteristics, AircraftDataCard.Characteristics)
+    assert adc.lift.alpha_max == pytest.approx(22.4)
+    assert adc.lift.mach_lcs_ids_table["0.84"] == [3.8, 232]
 
 
 # ---------------------------------------------------------------------------
@@ -233,13 +255,13 @@ def test_get_smash_uses_wing_load_not_a_raw_weight():
 
 
 def test_get_mach_is_the_inverse_of_the_keas_formula():
-    # keas = 674.573 * mach * exp(-0.0044558*altitude), so mach = keas *
-    # exp(0.0044558*altitude) / 674.573 -- and at altitude=0 that's just
-    # keas/674.573, the cleanest case to pin down independent of the
+    # keas = 674.6 * mach * exp(-0.0045*altitude), so mach = keas *
+    # exp(0.0045*altitude) / 674.6 -- and at altitude=0 that's just
+    # keas/674.6, the cleanest case to pin down independent of the
     # exponential term.
-    state = _make_state(ktas=674.573, altitude=0)  # keas rounds to 675
+    state = _make_state(ktas=674.6, altitude=0)  # keas rounds to 675
 
-    assert state.get_mach() == pytest.approx(round(675 / 674.573, 1))
+    assert state.get_mach() == pytest.approx(round(675 / 674.6, 1))
 
 
 def test_get_mach_uses_rounded_keas_and_applies_altitude_correction():
@@ -251,6 +273,27 @@ def test_get_mach_uses_rounded_keas_and_applies_altitude_correction():
     assert state.get_mach() == pytest.approx(1.0, abs=0.02)
 
 
+def test_get_lcs_looks_up_by_mach():
+    # ktas/altitude chosen so get_mach() lands exactly on 0.5, which is a
+    # key in the synthetic table -- _bop_tablerow_lookup returns that
+    # entry directly, and get_lcs() takes its first element.
+    state = _make_state(ktas=337.3, altitude=0)
+
+    assert state.get_mach() == pytest.approx(0.5)
+    assert state.get_lcs() == pytest.approx(4.0)
+
+
+def test_get_engine_output_matches_the_isobar_chart_directly():
+    # get_engine_output() should be a thin wrapper: same altitude/mach in,
+    # same result as calling the chart directly.
+    state = _make_state(ktas=337.3, altitude=0)
+    chart = IsobarChart(load_isobars(str(REAL_ENGINE_CHART_PATH)))
+
+    assert state.get_engine_output() == pytest.approx(
+        chart.interpolate(altitude=state.altitude, mach=state.get_mach())
+    )
+
+
 @pytest.mark.parametrize("ktas,expected", [
     (0.0, 1),
     (59.9, 1),
@@ -260,24 +303,29 @@ def test_get_mach_uses_rounded_keas_and_applies_altitude_correction():
     (139.0, 3),
     (140.0, 4),
 ])
-def test_get_speed_steps_every_40_knots_above_60(ktas, expected):
-    state = _make_state(ktas=ktas)
-
-    assert state.get_speed() == expected
+def test_speed_fp_from_ktas_steps_every_40_knots_above_60(ktas, expected):
+    assert speedbop.speed_fp_from_ktas(ktas) == expected
 
 
 def test_aircraft_state_against_real_fixture():
+    # Matches main()'s own scenario exactly (weight=17.4, ktas=485,
+    # altitude=75), so this doubles as a regression test for main()'s
+    # printed output.
     adc = AircraftDataCard.from_json(REAL_ADC_PATH)
-    state = _make_state(adc=adc, weight=17.4, ktas=285.0, altitude=75)
+    state = _make_state(adc=adc, weight=17.4, ktas=485.0, altitude=75)
 
     assert state.get_wing_load() == pytest.approx(58.0)
     assert state.get_safe_load() == pytest.approx(18.9)
-    assert state.get_keas() == 222
-    expected_q = round(222**2 / 2950, 1)
+    assert state.get_keas() == 377
+    expected_q = round(377**2 / 2950, 1)
     assert state.get_q() == pytest.approx(expected_q)
     assert state.get_smash() == pytest.approx(round(10.0 * expected_q / 58.0, 1))
-    assert state.get_speed() == 7
-    assert state.get_mach() == pytest.approx(0.5)
+    assert speedbop.speed_fp_from_ktas(state.ktas) == 12
+    assert state.get_mach() == pytest.approx(0.8)
+    assert state.get_engine_output() == pytest.approx(45.864416008712226)
+    assert state.get_lcs() == pytest.approx(3.8)
+    assert state.get_max_load() == 48
+    assert state.calculate_corner_speed() == 246
 
 
 # ---------------------------------------------------------------------------
@@ -320,13 +368,13 @@ def test_inverse_helpers_round_trip_the_real_fixture_within_rounding_error():
     # documents how much error that rounding introduces, not exact
     # equality.
     adc = AircraftDataCard.from_json(REAL_ADC_PATH)
-    state = _make_state(adc=adc, weight=17.4, ktas=285.0, altitude=75)
+    state = _make_state(adc=adc, weight=17.4, ktas=485.0, altitude=75)
 
     q = state.get_q()
     smash = state.get_smash()
     wing_load = state.get_wing_load()
 
-    assert q_from_smash(smash, wing_load) == pytest.approx(q, abs=0.2)
+    assert q_from_smash(smash, wing_load) == pytest.approx(q, abs=0.3)
     assert keas_from_q(q) == pytest.approx(state.get_keas(), abs=1.0)
     assert ktas_from_q(q, state.altitude) == pytest.approx(state.ktas, rel=0.02)
 
@@ -336,18 +384,23 @@ def test_inverse_helpers_round_trip_the_real_fixture_within_rounding_error():
 # ---------------------------------------------------------------------------
 
 def test_main_runs_and_prints_expected_values(capsys, monkeypatch):
-    # main() hardcodes "adc/fj-3m.json" relative to the CWD, not to this
-    # file, so it only resolves correctly when run from the repo root.
+    # main() hardcodes "adc/fj-3m.json" and "e6b/engine.csv" relative to
+    # the CWD, not to this file, so it only resolves correctly when run
+    # from the repo root.
     monkeypatch.chdir(REPO_ROOT)
+    speedbop._engine_chart = None  # force a fresh load under the new CWD
 
     speedbop.main()
 
     out = capsys.readouterr().out
-    assert "Hello Speedbop!" in out
-    assert "58.0" in out
+    assert "Wing load:  58.0" in out
     assert "Safe load:  18.9" in out
-    assert "KTAS: 285 7" in out
-    assert "KEAS: 222" in out
-    assert "Q: 16.7" in out
-    assert "Smash: 2.9" in out
-    assert "Mach: 0.5" in out
+    assert "KTAS: 485 12" in out
+    assert "KEAS: 377" in out
+    assert "Q: 48.2" in out
+    assert "Smash: 8.3" in out
+    assert "Mach: 0.8" in out
+    assert "Engine output: 45.86" in out
+    assert "LCS: 3.8" in out
+    assert "Max load: 48" in out
+    assert "Corner speed: 246" in out

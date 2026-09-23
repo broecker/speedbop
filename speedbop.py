@@ -5,6 +5,17 @@ import json
 import math
 import pathlib
 
+from e6b.chart import IsobarChart, load_isobars
+
+_ENGINE_CHART_PATH = pathlib.Path("e6b/engine.csv")
+_engine_chart: IsobarChart | None = None
+
+def _get_engine_chart() -> IsobarChart:
+  global _engine_chart
+  if _engine_chart is None:
+    _engine_chart = IsobarChart(load_isobars(str(_ENGINE_CHART_PATH)))
+  return _engine_chart
+
 # https://stackoverflow.com/a/54769644
 def _dataclass_from_dict(klass, d):
   if isinstance(d, list):
@@ -97,13 +108,13 @@ class AircraftState:
 
   def get_mach(self) -> float:
     keas = self.get_keas()
-    # keas = 674.573 * mach * exp(-0.0044558 * altitude); empirically determined.
-    return round(keas * math.exp(0.0044558 * self.altitude) / 674.573, 1)
-
-  def get_mach(self) -> float:
-    keas = self.get_keas()
-    mach = keas * math.exp(0.0045*self.altitude) / 674.6
+    # keas = 674.6 * mach * exp(-0.0045 * altitude); empirically determined.
+    mach = keas * math.exp(0.0045 * self.altitude) / 674.6
     return round(mach, 1)
+
+  def get_engine_output(self) -> float:
+    chart = _get_engine_chart()
+    return chart.interpolate(altitude=self.altitude, mach=self.get_mach())
 
   def get_lcs(self) -> float:
     mach = self.get_mach()
@@ -163,6 +174,7 @@ def main() -> None:
   print('Q:', state.get_q())
   print('Smash:', state.get_smash())
   print('Mach:', state.get_mach())
+  print('Engine output:', state.get_engine_output())
   print('LCS:', state.get_lcs())
   print('Max load:', state.get_max_load())
   print('Corner speed:', state.calculate_corner_speed())
