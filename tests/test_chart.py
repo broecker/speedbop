@@ -1,5 +1,3 @@
-import pathlib
-
 import pytest
 
 from e6b.chart import Isobar, IsobarChart, load_isobars, _interp
@@ -151,3 +149,29 @@ def test_load_isobars_groups_rows_by_output(tmp_path):
     assert {iso.output for iso in isobars} == {50.0, 100.0}
     chart = IsobarChart(isobars)
     assert chart.interpolate(altitude=0.0, mach=0.7) == pytest.approx(75.0)
+
+
+# ---------------------------------------------------------------------------
+# Real chart: e6b/engine.csv
+# ---------------------------------------------------------------------------
+
+def test_real_engine_chart_loads_and_interpolates():
+    # Real digitized isobars from an aircraft data card's engine output vs.
+    # altitude/Mach chart. The first version of this data had isobars 65
+    # and 70 crossing around altitude=245 (output=70's altitude=310 point
+    # was originally transcribed as mach=0.6; the corrected chart has it
+    # at mach=0.26) -- confirmed fixed by the fact that this loads at all,
+    # since IsobarChart raises on any crossing.
+    chart = IsobarChart(load_isobars("e6b/engine.csv"))
+
+    assert len(chart.isobars) == 10
+
+    # points taken directly from the digitized data should round-trip exactly
+    assert chart.interpolate(altitude=175.0, mach=1.45) == pytest.approx(40.0)
+    assert chart.interpolate(altitude=0.0, mach=0.94) == pytest.approx(30.0)
+
+    # isobars 65/70 no longer cross anywhere in the digitized range
+    iso65 = next(iso for iso in chart.isobars if iso.output == 65.0)
+    iso70 = next(iso for iso in chart.isobars if iso.output == 70.0)
+    for altitude in range(0, 311, 10):
+        assert iso65.mach_at(altitude) >= iso70.mach_at(altitude)

@@ -181,3 +181,10 @@ sampling every isobar's altitude breakpoints rather than just the query
 point or the chart's endpoints -- a crossing can happen strictly between
 two breakpoints of a *different* isobar than the pair that crosses).
 
+`e6b/engine.csv` is a real engine performance chart: 10 isobars (output
+30-75) over altitude 0-310 and Mach 0-2.5. The crossing check caught a
+real transcription error on the first pass -- isobars 65 and 70 crossed
+around altitude=245 and ended up swapped by altitude=310 (a 43% gap, not
+a rounding-level discrepancy), traced to a single mis-transcribed point
+(output=70's altitude=310 reading) and corrected against the chart.
+
