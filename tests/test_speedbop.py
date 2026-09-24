@@ -142,11 +142,18 @@ def _make_adc(**overrides):
             mach_lcs_ids_table={0.5: (4.0, 100), 1.0: (2.0, 50)},
         ),
         characteristics=AircraftDataCard.Characteristics(wing_area=2.0, combat_safe_load=10.0),
+        # A single entry always resolves to drag=0 regardless of query mach
+        # (_bop_tablerow_lookup falls back to it either as the matching
+        # ceiling entry or the highest-key fallback) -- so every existing
+        # test that doesn't care about form drag keeps its zero-form
+        # assumption; tests that do care override this explicitly.
+        form=AircraftDataCard.Form(brake=0, mach_to_drag_table={0.5: 0}),
         stores=AircraftDataCard.Stores(combat_weight=5.0),
         dry_engine_output=IsobarChart([
             Isobar(output=30.0, altitude=[0.0, 100.0], mach=[0.3, 0.9]),
             Isobar(output=60.0, altitude=[0.0, 100.0], mach=[0.1, 0.5]),
         ]),
+        ab_engine_output=None,
     )
     defaults.update(overrides)
     return AircraftDataCard(**defaults)
@@ -179,6 +186,7 @@ def test_aircraft_data_card_from_json_builds_nested_dataclasses(tmp_path):
         "version": "2.3",
         "lift": {"alpha_max": 15.0, "mach_lcs_ids_table": {"0.5": [4.0, 100]}},
         "characteristics": {"wing_area": 4.0, "combat_safe_load": 12.0},
+        "form": {"brake": 33, "mach_to_drag_table": {"0.5": 10}},
         "stores": {"combat_weight": 8.5},
         "dry_engine_output": "engine.csv",
     }))
@@ -192,10 +200,44 @@ def test_aircraft_data_card_from_json_builds_nested_dataclasses(tmp_path):
     assert isinstance(adc.characteristics, AircraftDataCard.Characteristics)
     assert adc.characteristics.wing_area == 4.0
     assert adc.characteristics.combat_safe_load == 12.0
+    assert isinstance(adc.form, AircraftDataCard.Form)
+    assert adc.form.mach_to_drag_table == {"0.5": 10}
     assert isinstance(adc.stores, AircraftDataCard.Stores)
     assert adc.stores.combat_weight == 8.5
     assert isinstance(adc.dry_engine_output, IsobarChart)
     assert adc.dry_engine_output.interpolate(altitude=0, mach=0.5) == pytest.approx(10.0)
+    # No ab_engine_output key in the JSON -- from_json() falls back to None
+    # rather than requiring every aircraft to have an afterburner.
+    assert adc.ab_engine_output is None
+
+
+def test_aircraft_data_card_from_json_reads_ab_engine_output_when_present(tmp_path):
+    (tmp_path / "dry.csv").write_text(
+        "output,altitude,mach\n10,0,0.5\n10,100,1.0\n20,0,0.2\n20,100,0.6\n"
+    )
+    (tmp_path / "ab.csv").write_text(
+        "output,altitude,mach\n50,0,0.5\n50,100,1.0\n80,0,0.2\n80,100,0.6\n"
+    )
+    path = tmp_path / "plane.json"
+    path.write_text(json.dumps({
+        "name": "Test Plane",
+        "version": "2.3",
+        "lift": {"alpha_max": 15.0, "mach_lcs_ids_table": {"0.5": [4.0, 100]}},
+        "characteristics": {"wing_area": 4.0, "combat_safe_load": 12.0},
+        "form": {"brake": 33, "mach_to_drag_table": {"0.5": 10}},
+        "stores": {"combat_weight": 8.5},
+        "dry_engine_output": "dry.csv",
+        "ab_engine_output": "ab.csv",
+    }))
+
+    adc = AircraftDataCard.from_json(path)
+
+    assert isinstance(adc.ab_engine_output, IsobarChart)
+    # The AB and dry charts are genuinely different data, not the same file
+    # loaded twice under two names.
+    assert adc.ab_engine_output.interpolate(altitude=0, mach=0.5) != pytest.approx(
+        adc.dry_engine_output.interpolate(altitude=0, mach=0.5)
+    )
 
 
 def test_aircraft_data_card_from_json_requires_dry_engine_output_key(tmp_path):
@@ -344,6 +386,77 @@ def test_get_engine_output_matches_the_isobar_chart_directly():
     assert state.get_engine_output() == pytest.approx(expected)
 
 
+# ---------------------------------------------------------------------------
+# Afterburner (AircraftState.get_engine_output(afterburner=...))
+# ---------------------------------------------------------------------------
+
+def _make_ab_adc(**overrides):
+    # Deliberately different values from _make_adc()'s dry chart at the
+    # same (altitude, mach), so AB-vs-dry selection is unambiguous in tests.
+    ab_chart = IsobarChart([
+        Isobar(output=50.0, altitude=[0.0, 100.0], mach=[0.3, 0.9]),
+        Isobar(output=90.0, altitude=[0.0, 100.0], mach=[0.1, 0.5]),
+    ])
+    return _make_adc(ab_engine_output=ab_chart, **overrides)
+
+
+def test_get_engine_output_defaults_to_afterburner_when_available():
+    state = _make_state(adc=_make_ab_adc(), ktas=337.3, altitude=0)  # mach rounds to 0.5
+
+    assert state.get_engine_output() == pytest.approx(50.0)  # from the AB chart, not dry's 30.0
+
+
+def test_get_engine_output_afterburner_false_uses_dry_chart():
+    state = _make_state(adc=_make_ab_adc(), ktas=337.3, altitude=0)
+
+    assert state.get_engine_output(afterburner=False) == pytest.approx(30.0)
+
+
+def test_get_engine_output_falls_back_to_dry_when_aircraft_has_no_afterburner():
+    # _make_adc()'s default ab_engine_output is None -- afterburner=True
+    # (the default) must not crash or misbehave for an aircraft that simply
+    # doesn't have one; it should transparently use the dry chart.
+    state = _make_state(ktas=337.3, altitude=0)
+
+    assert state.get_engine_output(afterburner=True) == pytest.approx(30.0)
+
+
+# ---------------------------------------------------------------------------
+# Form drag (AircraftState.get_form_drag / get_total_drag)
+# ---------------------------------------------------------------------------
+
+def _make_drag_adc(**overrides):
+    form = AircraftDataCard.Form(
+        brake=0, mach_to_drag_table={0.3: 10.0, 0.6: 20.0, 1.0: 40.0}
+    )
+    return _make_adc(form=form, **overrides)
+
+
+def test_get_form_drag_looks_up_by_mach():
+    # Same ceiling-lookup semantics as get_lcs()/get_ids(): the first table
+    # entry whose mach key is >= the query mach.
+    state = _make_state(adc=_make_drag_adc(), ktas=337.3, altitude=0)  # mach rounds to 0.5
+
+    assert state.get_mach() == pytest.approx(0.5)
+    assert state.get_form_drag() == pytest.approx(20.0)
+
+
+def test_get_form_drag_clamps_above_the_highest_table_entry():
+    state = _make_state(adc=_make_drag_adc(), ktas=2000.0, altitude=0)
+
+    assert state.get_form_drag() == pytest.approx(40.0)
+
+
+def test_get_total_drag_currently_equals_form_drag_alone():
+    # brake_drag and stores_drag are still hardcoded to 0 in
+    # get_total_drag() (see its own TODO) -- this pins that current
+    # behavior so a future change enabling them is a deliberate, visible
+    # diff here rather than a silent behavior change.
+    state = _make_state(adc=_make_drag_adc(), ktas=337.3, altitude=0)
+
+    assert state.get_total_drag() == pytest.approx(state.get_form_drag())
+
+
 @pytest.mark.parametrize("ktas,expected", [
     (0.0, 1),
     (59.9, 1),
@@ -468,6 +581,89 @@ def test_calculate_performance_clamps_engine_output_to_chart_max():
     )
 
     assert performance.engine_delta_ktas == pytest.approx(max_output)
+
+
+def test_calculate_performance_form_delta_ktas_uses_total_drag():
+    state = _make_state(adc=_make_drag_adc(), ktas=337.3, altitude=0)
+
+    performance = calculate_performance(state, segment_pulls=0, delta_altitude=0)
+
+    expected_form_delta_ktas = state.get_total_drag() / state.get_smash() * 10
+    assert performance.form_delta_ktas == pytest.approx(expected_form_delta_ktas)
+    assert performance.form_delta_ktas > 0
+    # And it actually participates in the resulting speed, not just the
+    # reported breakdown (the original bug engine_delta_ktas had before it
+    # was wired into new_ktas).
+    assert performance.new_state.ktas == pytest.approx(
+        state.ktas
+        - performance.induced_delta_ktas
+        + performance.gravity_delta_ktas
+        - performance.form_delta_ktas
+        + performance.engine_delta_ktas
+    )
+
+
+# ---------------------------------------------------------------------------
+# calculate_performance / afterburner toggle
+# ---------------------------------------------------------------------------
+
+def test_calculate_performance_afterburner_defaults_to_true():
+    state = _make_state(adc=_make_ab_adc(), ktas=337.3, altitude=0)
+
+    performance = calculate_performance(state, segment_pulls=0, delta_altitude=0)
+
+    assert performance.afterburner is True
+    assert performance.engine_delta_ktas == pytest.approx(50.0)  # AB chart's value
+
+
+def test_calculate_performance_afterburner_false_uses_dry_chart():
+    state = _make_state(adc=_make_ab_adc(), ktas=337.3, altitude=0)
+
+    performance = calculate_performance(
+        state, segment_pulls=0, delta_altitude=0, afterburner=False
+    )
+
+    assert performance.afterburner is False
+    assert performance.engine_delta_ktas == pytest.approx(30.0)  # dry chart's value
+
+
+def test_calculate_performance_engine_output_clamp_respects_afterburner_toggle():
+    # Regression test: max_engine_output used to always call
+    # state.get_engine_output() with no argument (always AB-on), so an
+    # override would clamp against the AB max even on a dry-only turn --
+    # requesting more than the dry engine can do should clamp to the DRY
+    # max here, not the (higher) AB max.
+    state = _make_state(adc=_make_ab_adc(), ktas=337.3, altitude=0)
+
+    performance = calculate_performance(
+        state, segment_pulls=0, delta_altitude=0, afterburner=False, engine_output=999.0
+    )
+
+    assert performance.engine_delta_ktas == pytest.approx(30.0)  # dry max, not AB's 50.0
+
+
+def test_turn_performance_max_engine_output_respects_actual_afterburner_used():
+    # Regression test: max_engine_output used to be a @property with its own
+    # afterburner parameter -- a property can't take arguments from the
+    # caller, so that parameter was dead and it always reported the AB max
+    # regardless of which mode the turn actually used.
+    state = _make_state(adc=_make_ab_adc(), ktas=337.3, altitude=0)
+
+    dry_turn = calculate_performance(state, segment_pulls=0, afterburner=False)
+    assert dry_turn.max_engine_output == pytest.approx(30.0)
+
+    ab_turn = calculate_performance(state, segment_pulls=0, afterburner=True)
+    assert ab_turn.max_engine_output == pytest.approx(50.0)
+
+
+def test_performance_history_resolve_turn_passes_through_afterburner():
+    state = _make_state(adc=_make_ab_adc(), ktas=337.3, altitude=0)
+    history = PerformanceHistory(state)
+
+    performance = history.resolve_turn(segment_pulls=0, afterburner=False)
+
+    assert performance.afterburner is False
+    assert performance.engine_delta_ktas == pytest.approx(30.0)
 
 
 def test_calculate_performance_clamps_segment_fp_to_between_one_and_current_speed_fp():
@@ -701,23 +897,31 @@ def test_inverse_helpers_round_trip_the_real_fixture_within_rounding_error():
 # ---------------------------------------------------------------------------
 
 def test_main_runs_and_prints_expected_values(capsys, monkeypatch):
-    # main() hardcodes "adc/fj-3m.json" relative to the CWD, not to this
+    # main() hardcodes "adc/swift-mk5.json" relative to the CWD, not to this
     # file, so it only resolves correctly when run from the repo root.
     monkeypatch.chdir(REPO_ROOT)
 
     speedbop.main()
 
     out = capsys.readouterr().out
-    assert "Wing load:  58.0" in out
-    assert "Safe load:  18.9" in out
-    assert "KTAS: 485 12" in out
-    assert "KEAS: 377" in out
-    assert "Q: 48.2" in out
-    assert "Smash: 8.3" in out
-    assert "Mach: 0.8" in out
-    assert "Engine output: 45.9" in out
-    assert "LCS: 3.8" in out
-    assert "Max load: 48" in out
-    assert "Corner speed: 246" in out
+    assert "Wing load:  52.7" in out
+    assert "Safe load:  20.9" in out
+    assert "KTAS: 385 10" in out
+    assert "KEAS: 342" in out
+    assert "Q: 39.6" in out
+    assert "Smash: 7.5" in out
+    assert "Mach: 0.6" in out
+    assert "Engine output: 57.1" in out
+    assert "LCS: 5.6" in out
+    assert "Max load: 34" in out
+    assert "Corner speed: 279" in out
     assert "[Performance]" in out
     assert "Pulls:         22" in out
+    # Swift Mk5 has an afterburner, resolve_turn() defaults afterburner=True,
+    # and its AB chart's max at this state equals get_engine_output()'s
+    # printed value above -- main() doesn't override engine_output, so the
+    # turn's actual and max engine dKTAS should read identically.
+    assert "Engine  dKTAS: 57.1 (max 57.1)" in out
+    # Form drag is no longer hardcoded to 0 -- Swift Mk5's form table
+    # produces a nonzero value at this state's mach.
+    assert "Form    dKTAS: 33.3" in out
