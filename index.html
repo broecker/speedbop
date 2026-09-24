@@ -44,8 +44,57 @@
 
       <div class="bottom-action">
         <button type="submit" class="primary-btn">Start</button>
+        <button type="button" id="open-performance-screen-btn" class="link-btn">
+          Or view aircraft performance reference &rarr;
+        </button>
       </div>
     </form>
+  </main>
+</section>
+
+<!-- ==================== SUSTAINED TURN PERFORMANCE ==================== -->
+<section id="performance-screen" class="screen hidden">
+  <header class="top-bar">
+    <h1>Aircraft Performance</h1>
+    <p class="subtitle">Sustained turn capability at a given altitude &mdash; no active flight needed</p>
+  </header>
+  <main>
+    <div class="field">
+      <label for="performance-aircraft-select">Aircraft</label>
+      <select id="performance-aircraft-select" required></select>
+    </div>
+
+    <div class="field">
+      <label for="performance-weight-input">Weight</label>
+      <input id="performance-weight-input" type="number" inputmode="decimal" step="0.1" required>
+    </div>
+
+    <div class="field">
+      <label for="performance-altitude-input">Altitude</label>
+      <input id="performance-altitude-input" type="number" inputmode="numeric" step="1" value="75" required>
+    </div>
+
+    <div class="field switch-field">
+      <label for="performance-afterburner-toggle">Afterburner</label>
+      <label class="switch">
+        <input type="checkbox" id="performance-afterburner-toggle">
+        <span class="switch-track"></span>
+      </label>
+    </div>
+    <p id="performance-afterburner-caption" class="hint-line"></p>
+
+    <div class="panel-box chart-panel">
+      <p id="performance-chart-caption" class="hint-line"></p>
+      <div id="performance-chart"></div>
+      <div class="chart-legend">
+        <span><i class="legend-swatch sustained"></i> Sustained (energy-limited)</span>
+        <span><i class="legend-swatch structural"></i> Max (structural)</span>
+      </div>
+    </div>
+
+    <div class="bottom-action">
+      <button type="button" id="close-performance-screen-btn" class="link-btn">&larr; Back to setup</button>
+    </div>
   </main>
 </section>
 
