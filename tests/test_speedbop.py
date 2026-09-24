@@ -21,6 +21,7 @@ from speedbop import (
     keas_from_q,
     ktas_from_keas,
     ktas_from_q,
+    phad_cells_from_load,
     q_from_smash,
     sustained_turn_profile,
 )
@@ -518,6 +519,20 @@ def test_get_sustained_load_afterburner_increases_it():
     assert ab > dry
 
 
+# ---------------------------------------------------------------------------
+# phad_cells_from_load
+# ---------------------------------------------------------------------------
+
+def test_phad_cells_from_load_matches_the_rule_of_thumb_example():
+    # "having 12 fp and pulling 24 load allows us to turn 2 cells"
+    assert phad_cells_from_load(load=24.0, fp=12) == pytest.approx(2.0)
+
+
+def test_phad_cells_from_load_is_proportional_to_load():
+    assert phad_cells_from_load(load=6.0, fp=12) == pytest.approx(0.5)
+    assert phad_cells_from_load(load=0.0, fp=12) == pytest.approx(0.0)
+
+
 def test_sustained_turn_profile_returns_one_point_per_ktas_value():
     adc = _make_ab_adc()
     ktas_values = [100.0, 200.0, 300.0]
@@ -534,9 +549,17 @@ def test_sustained_turn_profile_matches_calling_aircraft_state_directly():
 
     (point,) = sustained_turn_profile(adc, weight=17.4, altitude=0, ktas_values=[337.3])
 
+    expected_speed_fp = speedbop.speed_fp_from_ktas(state.get_keas())
     assert point.mach == pytest.approx(state.get_mach())
+    assert point.speed_fp == expected_speed_fp
     assert point.sustained_load == pytest.approx(state.get_sustained_load())
     assert point.max_load == state.get_max_load()
+    assert point.sustained_phad_cells == pytest.approx(
+        phad_cells_from_load(state.get_sustained_load(), expected_speed_fp)
+    )
+    assert point.max_phad_cells == pytest.approx(
+        phad_cells_from_load(state.get_max_load(), expected_speed_fp)
+    )
     assert point.engine_output == pytest.approx(state.get_engine_output())
     assert point.total_drag == pytest.approx(state.get_total_drag())
 
@@ -559,11 +582,15 @@ def test_sustained_turn_profile_afterburner_toggle_threads_through():
 # find_best_sustained_turn
 # ---------------------------------------------------------------------------
 
-def _sustained_point(ktas, sustained_load, max_load):
-    # find_best_sustained_turn only looks at ktas/sustained_load/max_load --
-    # the rest are irrelevant filler for these synthetic crossing scenarios.
+def _sustained_point(ktas, sustained_load, max_load, speed_fp=12):
+    # find_best_sustained_turn only looks at ktas/sustained_load/max_load/
+    # speed_fp -- the rest are irrelevant filler for these synthetic
+    # crossing scenarios.
     return SustainedTurnPoint(
-        ktas=ktas, mach=0.5, sustained_load=sustained_load, max_load=max_load,
+        ktas=ktas, mach=0.5, speed_fp=speed_fp,
+        sustained_load=sustained_load, max_load=max_load,
+        sustained_phad_cells=phad_cells_from_load(sustained_load, speed_fp),
+        max_phad_cells=phad_cells_from_load(max_load, speed_fp),
         engine_output=0.0, total_drag=0.0,
     )
 
@@ -580,6 +607,8 @@ def test_find_best_sustained_turn_interpolates_the_crossing():
     assert isinstance(best, BestSustainedTurn)
     assert best.ktas == pytest.approx(100.0 + (5 / 6) * 100.0)
     assert best.load == pytest.approx(10.0 + (5 / 6) * (8.0 - 10.0))
+    # _sustained_point()'s default speed_fp=12 for both bracketing points
+    assert best.phad_cells == pytest.approx(phad_cells_from_load(best.load, 12))
 
 
 def test_find_best_sustained_turn_handles_exact_equality_at_a_sample_point():
