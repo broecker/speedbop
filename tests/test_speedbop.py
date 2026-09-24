@@ -545,15 +545,20 @@ def test_sustained_turn_profile_returns_one_point_per_ktas_value():
 
 def test_sustained_turn_profile_matches_calling_aircraft_state_directly():
     adc = _make_ab_adc()
-    state = AircraftState(adc, weight=17.4, ktas=337.3, altitude=0)
+    # Nonzero altitude so get_keas() != ktas -- catches speed_fp being
+    # computed from the wrong one (see the regression test below).
+    state = AircraftState(adc, weight=17.4, ktas=337.3, altitude=75)
 
-    (point,) = sustained_turn_profile(adc, weight=17.4, altitude=0, ktas_values=[337.3])
+    (point,) = sustained_turn_profile(adc, weight=17.4, altitude=75, ktas_values=[337.3])
 
-    expected_speed_fp = speedbop.speed_fp_from_ktas(state.get_keas())
+    expected_speed_fp = speedbop.speed_fp_from_ktas(state.ktas)
     assert point.mach == pytest.approx(state.get_mach())
     assert point.speed_fp == expected_speed_fp
     assert point.sustained_load == pytest.approx(state.get_sustained_load())
     assert point.max_load == state.get_max_load()
+    assert point.max_pullable_load == math.floor(
+        max(state.get_sustained_load(), state.get_max_load())
+    )
     assert point.sustained_phad_cells == pytest.approx(
         phad_cells_from_load(state.get_sustained_load(), expected_speed_fp)
     )
@@ -562,6 +567,39 @@ def test_sustained_turn_profile_matches_calling_aircraft_state_directly():
     )
     assert point.engine_output == pytest.approx(state.get_engine_output())
     assert point.total_drag == pytest.approx(state.get_total_drag())
+
+
+def test_sustained_turn_profile_max_pullable_load_takes_the_higher_curve():
+    # At low speed sustained_load (energy) tends to exceed max_load
+    # (structural) -- the aircraft has more energy than it can structurally
+    # use; at high speed it's the reverse. max_pullable_load should track
+    # whichever is actually higher at each point, floored to an int.
+    adc = _make_ab_adc()
+    (low_speed_point,) = sustained_turn_profile(adc, weight=17.4, altitude=0, ktas_values=[120.0])
+    (high_speed_point,) = sustained_turn_profile(adc, weight=17.4, altitude=0, ktas_values=[300.0])
+
+    # Confirms this test actually exercises both branches of the max(),
+    # not the same one twice.
+    assert low_speed_point.sustained_load > low_speed_point.max_load
+    assert high_speed_point.sustained_load < high_speed_point.max_load
+
+    assert low_speed_point.max_pullable_load == math.floor(low_speed_point.sustained_load)
+    assert high_speed_point.max_pullable_load == high_speed_point.max_load
+
+
+def test_sustained_turn_profile_speed_fp_uses_raw_ktas_not_keas():
+    # Regression test: speed_fp used to be computed from state.get_keas()
+    # (matching calculate_performance()'s own internal convention), but
+    # speed_fp_from_ktas() takes its name, and every other place that reads
+    # FP off a state (the turn screen's stat bar, main()'s printed KTAS/FP
+    # line), uses raw ktas -- confirmed directly: 120 KTAS is 3 FP
+    # (2 + (120-60)//40), not the 2 FP get_keas() would give at a nonzero
+    # altitude like 75.
+    adc = _make_ab_adc()
+
+    (point,) = sustained_turn_profile(adc, weight=17.4, altitude=75, ktas_values=[120.0])
+
+    assert point.speed_fp == 3
 
 
 def test_sustained_turn_profile_afterburner_toggle_threads_through():
@@ -589,6 +627,7 @@ def _sustained_point(ktas, sustained_load, max_load, speed_fp=12):
     return SustainedTurnPoint(
         ktas=ktas, mach=0.5, speed_fp=speed_fp,
         sustained_load=sustained_load, max_load=max_load,
+        max_pullable_load=math.floor(max(sustained_load, max_load)),
         sustained_phad_cells=phad_cells_from_load(sustained_load, speed_fp),
         max_phad_cells=phad_cells_from_load(max_load, speed_fp),
         engine_output=0.0, total_drag=0.0,

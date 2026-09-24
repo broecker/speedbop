@@ -8,6 +8,7 @@
   --accent: #4fb0ff;
   --accent-text: #04141f;
   --danger: #ff6b6b;
+  --success: #4cc38a;
   --radius: 12px;
   --gutter: 16px;
   --tap: 48px;
@@ -387,6 +388,10 @@ input:focus {
   fill: var(--danger);
 }
 
+#performance-chart .crosshair-dot.pullable-dot {
+  fill: var(--success);
+}
+
 .chart-tooltip {
   position: absolute;
   top: 8px;
@@ -415,6 +420,10 @@ input:focus {
   color: var(--danger);
 }
 
+.chart-tooltip .tt-pullable {
+  color: var(--success);
+}
+
 #performance-chart .sustained-line {
   fill: none;
   stroke: var(--accent);
@@ -426,6 +435,13 @@ input:focus {
   stroke: var(--danger);
   stroke-width: 2;
   stroke-dasharray: 4 3;
+}
+
+#performance-chart .pullable-line {
+  fill: none;
+  stroke: var(--success);
+  stroke-width: 1.5;
+  stroke-dasharray: 1 2;
 }
 
 #performance-chart .best-turn-point {
@@ -462,6 +478,10 @@ input:focus {
 
 .legend-swatch.structural {
   background: var(--danger);
+}
+
+.legend-swatch.pullable {
+  background: var(--success);
 }
 
 /* ---------- buttons ---------- */

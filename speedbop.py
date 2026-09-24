@@ -386,6 +386,7 @@ class SustainedTurnPoint:
     speed_fp: int
     sustained_load: float
     max_load: int
+    max_pullable_load: int
     sustained_phad_cells: float
     max_phad_cells: float
     engine_output: float
@@ -413,9 +414,13 @@ def sustained_turn_profile(
     points = []
     for ktas in ktas_values:
         state = AircraftState(adc, weight, ktas, altitude)
-        # Matches calculate_performance()'s own speed_fp_from_ktas(get_keas())
-        # -- the FP a turn's segment length is actually measured against.
-        speed_fp = speed_fp_from_ktas(state.get_keas())
+        # Raw KTAS, not get_keas() -- matches speed_fp_from_ktas()'s own
+        # name and how the turn screen's own stat bar and main() already
+        # read FP off a state elsewhere. (calculate_performance()'s
+        # internal "speed"/initial_speed_fp uses get_keas() instead --
+        # a pre-existing inconsistency, left alone here since fixing it
+        # would change core turn-resolution math, not just this chart.)
+        speed_fp = speed_fp_from_ktas(ktas)
         sustained_load = state.get_sustained_load(afterburner)
         max_load = state.get_max_load()
         points.append(
@@ -425,6 +430,7 @@ def sustained_turn_profile(
                 speed_fp=speed_fp,
                 sustained_load=sustained_load,
                 max_load=max_load,
+                max_pullable_load=math.floor(max(sustained_load, max_load)),
                 sustained_phad_cells=phad_cells_from_load(sustained_load, speed_fp),
                 max_phad_cells=phad_cells_from_load(max_load, speed_fp),
                 engine_output=state.get_engine_output(afterburner),

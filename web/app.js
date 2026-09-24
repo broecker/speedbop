@@ -148,6 +148,7 @@ document.getElementById("setup-form").addEventListener("submit", (event) => {
 // Aircraft Performance screen: sustained turn reference (no active game)
 // ---------------------------------------------------------------------
 
+const PERFORMANCE_KTAS_MIN = 120; // 3 FP -- nothing slower is worth showing
 const PERFORMANCE_KTAS_STEP = 10;
 const PERFORMANCE_KTAS_MAX = 800;
 const PERFORMANCE_LOAD_CAP = 36; // 12 Gs -- keeps the chart zoomed on the realistic range
@@ -188,7 +189,7 @@ function updatePerformanceScreen() {
   const loadCap = Math.min(1.2 * adc.characteristics.combat_safe_load, PERFORMANCE_LOAD_CAP);
 
   const ktasValues = [];
-  for (let ktas = 0; ktas <= PERFORMANCE_KTAS_MAX; ktas += PERFORMANCE_KTAS_STEP) {
+  for (let ktas = PERFORMANCE_KTAS_MIN; ktas <= PERFORMANCE_KTAS_MAX; ktas += PERFORMANCE_KTAS_STEP) {
     ktasValues.push(ktas);
   }
 
@@ -204,7 +205,7 @@ function updatePerformanceScreen() {
 
   const modeLabel = afterburner ? "AB" : "dry";
   document.getElementById("performance-chart-caption").textContent = best
-    ? `${entry.name} @ ${altitude} alt, ${modeLabel} power -- best sustained turn: ` +
+    ? `${entry.name} @ ${altitude} alt, ${modeLabel} power -- corner: ` +
       `${Math.round(best.ktas)} kt / ${round1(best.load)} loads / ${round1(best.phadCells)} PHAD cells`
     : `${entry.name} @ ${altitude} alt, ${modeLabel} power -- no sustained-turn crossing in range`;
 
@@ -221,9 +222,10 @@ function renderSustainedTurnChart(container, points, best, loadCap) {
   const plotW = width - padLeft - padRight;
   const plotH = height - padTop - padBottom;
 
+  const ktasMin = points[0].ktas;
   const ktasMax = Math.max(...points.map((p) => p.ktas)) * 1.02;
 
-  const x = (ktas) => padLeft + (ktas / ktasMax) * plotW;
+  const x = (ktas) => padLeft + ((ktas - ktasMin) / (ktasMax - ktasMin)) * plotW;
   const y = (load) => padTop + plotH - (Math.min(load, loadCap) / loadCap) * plotH;
 
   const pathFor = (getLoad) =>
@@ -232,7 +234,7 @@ function renderSustainedTurnChart(container, points, best, loadCap) {
   const axes = `
     <line class="axis-line" x1="${padLeft}" y1="${padTop}" x2="${padLeft}" y2="${padTop + plotH}"></line>
     <line class="axis-line" x1="${padLeft}" y1="${padTop + plotH}" x2="${padLeft + plotW}" y2="${padTop + plotH}"></line>
-    <text x="${padLeft}" y="${height - 4}">0</text>
+    <text x="${padLeft}" y="${height - 4}">${Math.round(ktasMin)} kt</text>
     <text x="${padLeft + plotW}" y="${height - 4}" text-anchor="end">${Math.round(ktasMax)} kt</text>
     <text x="2" y="${padTop + plotH}">0</text>
     <text x="2" y="${padTop + 6}">${round1(loadCap)} loads (${round1(loadCap / 3)}G)</text>
@@ -248,7 +250,7 @@ function renderSustainedTurnChart(container, points, best, loadCap) {
     bestMarker =
       `<circle class="best-turn-point" cx="${bx.toFixed(1)}" cy="${by.toFixed(1)}" r="3.5"></circle>` +
       `<text class="best-turn-label" x="${bx.toFixed(1)}" y="${(by - 7).toFixed(1)}" text-anchor="middle">` +
-      `Best: ${Math.round(best.ktas)}kt / ${round1(best.load)} loads</text>`;
+      `Corner: ${Math.round(best.ktas)}kt / ${round1(best.load)} loads</text>`;
   }
 
   container.innerHTML =
@@ -256,16 +258,18 @@ function renderSustainedTurnChart(container, points, best, loadCap) {
     axes +
     `<polyline class="structural-line" points="${pathFor((p) => p.max_load)}"></polyline>` +
     `<polyline class="sustained-line" points="${pathFor((p) => p.sustained_load)}"></polyline>` +
+    `<polyline class="pullable-line" points="${pathFor((p) => p.max_pullable_load)}"></polyline>` +
     bestMarker +
     `<rect class="hover-target" x="${padLeft}" y="${padTop}" width="${plotW}" height="${plotH}"></rect>` +
     `<g class="crosshair hidden">` +
     `<line class="crosshair-line" x1="0" y1="${padTop}" x2="0" y2="${padTop + plotH}"></line>` +
     `<circle class="crosshair-dot sustained-dot" r="2.6"></circle>` +
     `<circle class="crosshair-dot structural-dot" r="2.6"></circle>` +
+    `<circle class="crosshair-dot pullable-dot" r="2.6"></circle>` +
     `</g>` +
     `</svg>`;
 
-  wireSustainedTurnChartInteractivity(container, points, { x, y, width, padLeft, plotW, ktasMax });
+  wireSustainedTurnChartInteractivity(container, points, { x, y, width, padLeft, plotW, ktasMin, ktasMax });
 }
 
 function wireSustainedTurnChartInteractivity(container, points, scale) {
@@ -275,18 +279,17 @@ function wireSustainedTurnChartInteractivity(container, points, scale) {
   const crosshairLine = container.querySelector(".crosshair-line");
   const sustainedDot = container.querySelector(".sustained-dot");
   const structuralDot = container.querySelector(".structural-dot");
+  const pullableDot = container.querySelector(".pullable-dot");
   const tooltip = document.getElementById("performance-chart-tooltip");
 
   function nearestPoint(event) {
     const rect = svg.getBoundingClientRect();
     const svgX = ((event.clientX - rect.left) / rect.width) * scale.width;
-    const ktas = Math.min(
-      Math.max(((svgX - scale.padLeft) / scale.plotW) * scale.ktasMax, 0),
-      points[points.length - 1].ktas
-    );
+    const frac = Math.min(Math.max((svgX - scale.padLeft) / scale.plotW, 0), 1);
+    const ktas = scale.ktasMin + frac * (scale.ktasMax - scale.ktasMin);
     const index = Math.min(
       points.length - 1,
-      Math.max(0, Math.round(ktas / PERFORMANCE_KTAS_STEP))
+      Math.max(0, Math.round((ktas - scale.ktasMin) / PERFORMANCE_KTAS_STEP))
     );
     return points[index];
   }
@@ -302,13 +305,16 @@ function wireSustainedTurnChartInteractivity(container, points, scale) {
     sustainedDot.setAttribute("cy", scale.y(p.sustained_load).toFixed(1));
     structuralDot.setAttribute("cx", px.toFixed(1));
     structuralDot.setAttribute("cy", scale.y(p.max_load).toFixed(1));
+    pullableDot.setAttribute("cx", px.toFixed(1));
+    pullableDot.setAttribute("cy", scale.y(p.max_pullable_load).toFixed(1));
 
     tooltip.innerHTML =
-      `<strong>${Math.round(p.ktas)} kt</strong>` +
+      `<strong>${Math.round(p.ktas)} kt (${p.speed_fp} FP)</strong>` +
       `<span class="tt-sustained">Sustained: ${round1(p.sustained_load)} loads ` +
       `(${round1(p.sustained_phad_cells)} cells)</span><br>` +
       `<span class="tt-structural">Structural: ${p.max_load} loads ` +
-      `(${round1(p.max_phad_cells)} cells)</span>`;
+      `(${round1(p.max_phad_cells)} cells)</span><br>` +
+      `<span class="tt-pullable">Pullable: ${p.max_pullable_load} loads</span>`;
     tooltip.classList.remove("hidden");
 
     // Flip sides so the tooltip never overflows the chart's edge.
