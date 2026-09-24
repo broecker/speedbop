@@ -10,6 +10,7 @@ from speedbop import (
     AircraftDataCard,
     AircraftState,
     PerformanceHistory,
+    SustainedTurnPoint,
     TurnPerformance,
     _bop_tablerow_lookup,
     _dataclass_from_dict,
@@ -19,6 +20,7 @@ from speedbop import (
     ktas_from_keas,
     ktas_from_q,
     q_from_smash,
+    sustained_turn_profile,
 )
 from chart import Isobar, IsobarChart, load_isobars
 
@@ -455,6 +457,100 @@ def test_get_total_drag_currently_equals_form_drag_alone():
     state = _make_state(adc=_make_drag_adc(), ktas=337.3, altitude=0)
 
     assert state.get_total_drag() == pytest.approx(state.get_form_drag())
+
+
+# ---------------------------------------------------------------------------
+# Sustained turn performance (AircraftState.get_sustained_load / sustained_turn_profile)
+# ---------------------------------------------------------------------------
+
+def test_get_sustained_load_is_positive_and_below_the_structural_max():
+    state = _make_state(adc=_make_ab_adc(), ktas=337.3, altitude=0)
+
+    sustained = state.get_sustained_load()
+
+    assert sustained > 0
+    assert sustained < state.get_max_load()
+
+
+def test_get_sustained_load_zero_crossing_matches_calculate_performance():
+    # Cross-checks the closed-form formula against the real per-turn
+    # formula in calculate_performance() -- if that formula ever changes,
+    # this test catches the drift instead of the two silently diverging.
+    # segment_pulls is typed as int, but nothing here needs it to actually
+    # be one -- the sustained load is generally fractional, and the whole
+    # point is finding the exact zero crossing.
+    state = _make_state(adc=_make_ab_adc(), ktas=337.3, altitude=0)
+    sustained = state.get_sustained_load()
+
+    performance = calculate_performance(state, segment_pulls=sustained, delta_altitude=0)
+
+    assert performance.new_state.ktas == pytest.approx(state.ktas, abs=0.01)
+
+
+def test_get_sustained_load_returns_zero_when_drag_exceeds_available_thrust():
+    # The aircraft is already decelerating in straight, level flight at
+    # this speed/altitude -- there's no load, however small, it can sustain.
+    huge_drag_form = AircraftDataCard.Form(brake=0, mach_to_drag_table={0.5: 999.0})
+    state = _make_state(adc=_make_adc(form=huge_drag_form), ktas=337.3, altitude=0)
+
+    assert state.get_sustained_load() == 0.0
+
+
+def test_get_sustained_load_returns_zero_at_zero_speed_instead_of_dividing_by_zero():
+    # Regression test: get_smash() legitimately returns 0 as ktas -> 0
+    # (q/wing_load both go to 0), and the formula's k divides BY smash --
+    # this used to raise ZeroDivisionError rather than just reporting "no
+    # sustainable load at this speed."
+    state = _make_state(adc=_make_ab_adc(), ktas=0.0, altitude=0)
+
+    assert state.get_smash() == 0.0  # confirms this test actually hits the case
+    assert state.get_sustained_load() == 0.0
+
+
+def test_get_sustained_load_afterburner_increases_it():
+    state = _make_state(adc=_make_ab_adc(), ktas=337.3, altitude=0)
+
+    dry = state.get_sustained_load(afterburner=False)
+    ab = state.get_sustained_load(afterburner=True)
+
+    assert ab > dry
+
+
+def test_sustained_turn_profile_returns_one_point_per_ktas_value():
+    adc = _make_ab_adc()
+    ktas_values = [100.0, 200.0, 300.0]
+
+    points = sustained_turn_profile(adc, weight=17.4, altitude=0, ktas_values=ktas_values)
+
+    assert [p.ktas for p in points] == ktas_values
+    assert all(isinstance(p, SustainedTurnPoint) for p in points)
+
+
+def test_sustained_turn_profile_matches_calling_aircraft_state_directly():
+    adc = _make_ab_adc()
+    state = AircraftState(adc, weight=17.4, ktas=337.3, altitude=0)
+
+    (point,) = sustained_turn_profile(adc, weight=17.4, altitude=0, ktas_values=[337.3])
+
+    assert point.mach == pytest.approx(state.get_mach())
+    assert point.sustained_load == pytest.approx(state.get_sustained_load())
+    assert point.max_load == state.get_max_load()
+    assert point.engine_output == pytest.approx(state.get_engine_output())
+    assert point.total_drag == pytest.approx(state.get_total_drag())
+
+
+def test_sustained_turn_profile_afterburner_toggle_threads_through():
+    adc = _make_ab_adc()
+
+    (dry_point,) = sustained_turn_profile(
+        adc, weight=17.4, altitude=0, ktas_values=[337.3], afterburner=False
+    )
+    (ab_point,) = sustained_turn_profile(
+        adc, weight=17.4, altitude=0, ktas_values=[337.3], afterburner=True
+    )
+
+    assert ab_point.sustained_load > dry_point.sustained_load
+    assert ab_point.engine_output > dry_point.engine_output
 
 
 @pytest.mark.parametrize("ktas,expected", [

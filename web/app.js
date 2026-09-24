@@ -100,7 +100,8 @@ async function boot() {
     await loadAircraftFiles(entry);
   }
 
-  populateAircraftPicker();
+  populateAircraftSelect(document.getElementById("aircraft-select"));
+  populateAircraftSelect(document.getElementById("performance-aircraft-select"));
   showScreen("setup-screen");
 }
 
@@ -108,8 +109,7 @@ async function boot() {
 // Setup screen
 // ---------------------------------------------------------------------
 
-function populateAircraftPicker() {
-  const select = document.getElementById("aircraft-select");
+function populateAircraftSelect(select) {
   select.innerHTML = "";
   for (const entry of aircraftManifest) {
     const option = document.createElement("option");
@@ -145,6 +145,116 @@ document.getElementById("setup-form").addEventListener("submit", (event) => {
 });
 
 // ---------------------------------------------------------------------
+// Aircraft Performance screen: sustained turn reference (no active game)
+// ---------------------------------------------------------------------
+
+const PERFORMANCE_KTAS_STEP = 10;
+const PERFORMANCE_KTAS_MAX = 800;
+
+function performanceAircraftEntry() {
+  const path = document.getElementById("performance-aircraft-select").value;
+  return aircraftManifest.find((entry) => entry.path === path);
+}
+
+// Weight and the afterburner toggle are aircraft-specific, so a freshly
+// picked aircraft resets both -- weight to its own combat weight, AB
+// toggle to on-if-available -- rather than carrying over the previous
+// aircraft's values.
+function initPerformanceAircraftFields() {
+  const entry = performanceAircraftEntry();
+  const adc = speedbop.AircraftDataCard.from_json(pathlib.Path(`adc/${entry.path}`));
+  document.getElementById("performance-weight-input").value = adc.stores.combat_weight;
+  updateAfterburnerAvailability(
+    adc,
+    document.getElementById("performance-afterburner-toggle"),
+    document.getElementById("performance-afterburner-caption")
+  );
+}
+
+function updatePerformanceScreen() {
+  const entry = performanceAircraftEntry();
+  const weight = parseFloat(document.getElementById("performance-weight-input").value);
+  const altitude = parseInt(document.getElementById("performance-altitude-input").value, 10);
+  if (Number.isNaN(weight) || Number.isNaN(altitude)) return; // mid-edit, e.g. field just cleared
+
+  const adc = speedbop.AircraftDataCard.from_json(pathlib.Path(`adc/${entry.path}`));
+  const toggle = document.getElementById("performance-afterburner-toggle");
+  const afterburner = !toggle.disabled && toggle.checked;
+
+  const ktasValues = [];
+  for (let ktas = 0; ktas <= PERFORMANCE_KTAS_MAX; ktas += PERFORMANCE_KTAS_STEP) {
+    ktasValues.push(ktas);
+  }
+
+  const points = speedbop
+    .sustained_turn_profile(adc, weight, altitude, ktasValues, afterburner)
+    .toJs({ dict_converter: Object.fromEntries });
+
+  document.getElementById("performance-chart-caption").textContent =
+    `${entry.name} @ ${altitude} alt, ${afterburner ? "AB" : "dry"} power`;
+  document.getElementById("performance-chart").innerHTML = buildSustainedTurnChartSvg(points);
+}
+
+function buildSustainedTurnChartSvg(points) {
+  const width = 300;
+  const height = 200;
+  const padLeft = 28;
+  const padRight = 10;
+  const padTop = 10;
+  const padBottom = 20;
+  const plotW = width - padLeft - padRight;
+  const plotH = height - padTop - padBottom;
+
+  const toGs = (load) => load / 3; // matches gs_from_pulls(), unrounded for a smooth curve
+
+  const ktasMax = Math.max(...points.map((p) => p.ktas)) * 1.02;
+  const gsMax =
+    Math.max(...points.map((p) => Math.max(toGs(p.sustained_load), toGs(p.max_load)))) * 1.05;
+
+  const x = (ktas) => padLeft + (ktas / ktasMax) * plotW;
+  const y = (gs) => padTop + plotH - (gs / gsMax) * plotH;
+
+  const pathFor = (getLoad) =>
+    points.map((p) => `${x(p.ktas).toFixed(1)},${y(toGs(getLoad(p))).toFixed(1)}`).join(" ");
+
+  const axes = `
+    <line class="axis-line" x1="${padLeft}" y1="${padTop}" x2="${padLeft}" y2="${padTop + plotH}"></line>
+    <line class="axis-line" x1="${padLeft}" y1="${padTop + plotH}" x2="${padLeft + plotW}" y2="${padTop + plotH}"></line>
+    <text x="${padLeft}" y="${height - 4}">0</text>
+    <text x="${padLeft + plotW}" y="${height - 4}" text-anchor="end">${Math.round(ktasMax)} kt</text>
+    <text x="2" y="${padTop + plotH}">0</text>
+    <text x="2" y="${padTop + 6}">${gsMax.toFixed(1)}g</text>
+  `;
+
+  return (
+    `<svg viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">` +
+    axes +
+    `<polyline class="structural-line" points="${pathFor((p) => p.max_load)}"></polyline>` +
+    `<polyline class="sustained-line" points="${pathFor((p) => p.sustained_load)}"></polyline>` +
+    `</svg>`
+  );
+}
+
+document.getElementById("open-performance-screen-btn").addEventListener("click", () => {
+  initPerformanceAircraftFields();
+  showScreen("performance-screen");
+  updatePerformanceScreen();
+});
+
+document.getElementById("close-performance-screen-btn").addEventListener("click", () => {
+  showScreen("setup-screen");
+});
+
+document.getElementById("performance-aircraft-select").addEventListener("change", () => {
+  initPerformanceAircraftFields();
+  updatePerformanceScreen();
+});
+
+document.getElementById("performance-weight-input").addEventListener("input", updatePerformanceScreen);
+document.getElementById("performance-altitude-input").addEventListener("input", updatePerformanceScreen);
+document.getElementById("performance-afterburner-toggle").addEventListener("change", updatePerformanceScreen);
+
+// ---------------------------------------------------------------------
 // Turn screen: steppers
 // ---------------------------------------------------------------------
 
@@ -176,19 +286,23 @@ function stepperValue(name) {
 // Turn screen: afterburner toggle
 // ---------------------------------------------------------------------
 
+// Shared by the turn screen and the performance screen.
+function updateAfterburnerAvailability(adc, toggle, captionEl) {
+  const hasAfterburner = !!adc.ab_engine_output;
+  toggle.disabled = !hasAfterburner;
+  toggle.checked = hasAfterburner; // on by default when the aircraft has one
+  captionEl.textContent = hasAfterburner ? "" : "This aircraft has no afterburner.";
+}
+
 // Set once per aircraft (on setup, not on every turn) -- otherwise a
 // mid-flight "switch to dry for the rest of this run" choice would get
 // silently reset back to on after every resolved turn.
 function setupAfterburnerToggle(state) {
-  const toggle = document.getElementById("afterburner-toggle");
-  const hasAfterburner = !!state.adc.ab_engine_output;
-
-  toggle.disabled = !hasAfterburner;
-  toggle.checked = hasAfterburner; // on by default when the aircraft has one
-
-  document.getElementById("afterburner-caption").textContent = hasAfterburner
-    ? ""
-    : "This aircraft has no afterburner.";
+  updateAfterburnerAvailability(
+    state.adc,
+    document.getElementById("afterburner-toggle"),
+    document.getElementById("afterburner-caption")
+  );
 }
 
 function afterburnerEnabled() {

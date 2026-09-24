@@ -277,8 +277,15 @@ input:focus {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   margin-bottom: 18px;
-  padding: 0 14px 14px;
+  padding: 14px;
   overflow: hidden;
+}
+
+/* <details> panels get their top spacing from the summary's own padding
+   instead -- this covers both that case and a plain <div class="panel-box">
+   (e.g. the always-visible sustained-turn chart) with one shared class. */
+.panel-box:has(> summary) {
+  padding: 0 14px 14px;
 }
 
 .panel-box > summary {
@@ -290,19 +297,36 @@ input:focus {
   color: var(--text-dim);
 }
 
+/* ---------- secondary / link-style buttons ---------- */
+
+.link-btn {
+  display: block;
+  width: 100%;
+  min-height: var(--tap);
+  margin-top: 4px;
+  padding: 10px;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-size: 0.9rem;
+  text-align: center;
+}
+
 /* ---------- engine output chart ---------- */
 
 #engine-chart {
   width: 100%;
 }
 
-#engine-chart svg {
+#engine-chart svg,
+#performance-chart svg {
   width: 100%;
   height: auto;
   display: block;
 }
 
-#engine-chart text {
+#engine-chart text,
+#performance-chart text {
   fill: var(--text-dim);
   font-size: 7px;
 }
@@ -322,9 +346,53 @@ input:focus {
   stroke-width: 1;
 }
 
-#engine-chart .axis-line {
+#engine-chart .axis-line,
+#performance-chart .axis-line {
   stroke: var(--border);
   stroke-width: 1;
+}
+
+/* ---------- sustained turn performance chart ---------- */
+
+#performance-chart {
+  width: 100%;
+}
+
+#performance-chart .sustained-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+#performance-chart .structural-line {
+  fill: none;
+  stroke: var(--danger);
+  stroke-width: 2;
+  stroke-dasharray: 4 3;
+}
+
+.chart-legend {
+  display: flex;
+  gap: 16px;
+  margin-top: 8px;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+}
+
+.legend-swatch {
+  display: inline-block;
+  width: 14px;
+  height: 3px;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+
+.legend-swatch.sustained {
+  background: var(--accent);
+}
+
+.legend-swatch.structural {
+  background: var(--danger);
 }
 
 /* ---------- buttons ---------- */

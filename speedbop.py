@@ -173,6 +173,35 @@ class AircraftState:
         stores_drag = 0.0
         return form_drag + brake_drag + stores_drag
 
+    def get_sustained_load(self, afterburner: bool = True) -> float:
+        """Max load (same units as get_max_load()) sustainable indefinitely
+        at this exact state -- the load at which induced + form drag exactly
+        balances engine thrust, so KTAS neither rises nor falls turn over
+        turn. Above this (up to get_max_load()'s structural ceiling), every
+        turn bleeds energy; below it, every turn gains energy.
+
+        Closed-form, not iterative: in calculate_performance(), with no
+        segment_fp override, induced_delta_ktas reduces to load**2 * k for
+        a k that doesn't depend on load, and neither form_delta_ktas nor
+        engine_delta_ktas depend on load at all -- so solving for the load
+        where the net change is zero is just inverting that square. Unlike
+        get_max_load(), this is an analysis value, not a live per-turn
+        clamp, so it's left as a precise float (not floored to an int) and
+        NOT capped at get_max_load() -- callers wanting the actually
+        achievable sustained G take min(get_sustained_load(), get_max_load())
+        themselves.
+        """
+        net_thrust = self.get_engine_output(afterburner) - self.get_total_drag()
+        if net_thrust <= 0:
+            return 0.0
+        smash = self.get_smash()
+        if smash == 0:
+            # No meaningful lift at this speed (q/smash -> 0 as ktas -> 0) --
+            # there's no load, however small, it can sustain.
+            return 0.0
+        k = 100 * self.get_lcs() / (smash * self.get_ids())
+        return math.sqrt(net_thrust / k)
+
 
 def speed_fp_from_ktas(ktas: float) -> int:
     if ktas < 60:
@@ -338,6 +367,54 @@ def calculate_performance(
         old_state=state,
         new_state=new_state,
     )
+
+
+@dataclass(frozen=True)
+class SustainedTurnPoint:
+    """One point on a sustained-turn-performance sweep: what an aircraft can
+    do at one particular speed and altitude, energy-wise and structurally.
+    """
+
+    ktas: float
+    mach: float
+    sustained_load: float
+    max_load: int
+    engine_output: float
+    total_drag: float
+
+
+def sustained_turn_profile(
+    adc: AircraftDataCard,
+    weight: float,
+    altitude: int,
+    ktas_values: list[float],
+    afterburner: bool = True,
+) -> list[SustainedTurnPoint]:
+    """Sustained-turn performance across a range of speeds at one altitude --
+    the data behind an energy-maneuverability chart: for each speed, how
+    many Gs can this aircraft sustain indefinitely (sustained_load) versus
+    how many Gs the airframe can take at all (max_load). Where those two
+    cross is the aircraft's "corner point" -- below it, turn performance is
+    energy-limited; above it, structural.
+
+    The speed range is entirely up to the caller (a chart, a script, a
+    test) -- this just builds one AircraftState per KTAS value and reads
+    its performance off it, the same way any other turn-by-turn state would.
+    """
+    points = []
+    for ktas in ktas_values:
+        state = AircraftState(adc, weight, ktas, altitude)
+        points.append(
+            SustainedTurnPoint(
+                ktas=ktas,
+                mach=state.get_mach(),
+                sustained_load=state.get_sustained_load(afterburner),
+                max_load=state.get_max_load(),
+                engine_output=state.get_engine_output(afterburner),
+                total_drag=state.get_total_drag(),
+            )
+        )
+    return points
 
 
 @dataclass
