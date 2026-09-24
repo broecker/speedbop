@@ -354,8 +354,65 @@ input:focus {
 
 /* ---------- sustained turn performance chart ---------- */
 
+.chart-wrap {
+  position: relative;
+}
+
 #performance-chart {
   width: 100%;
+}
+
+#performance-chart .hover-target {
+  fill: transparent;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+#performance-chart .crosshair-line {
+  stroke: var(--text-dim);
+  stroke-width: 1;
+  stroke-dasharray: 2 2;
+}
+
+#performance-chart .crosshair-dot {
+  stroke: var(--panel);
+  stroke-width: 1;
+}
+
+#performance-chart .crosshair-dot.sustained-dot {
+  fill: var(--accent);
+}
+
+#performance-chart .crosshair-dot.structural-dot {
+  fill: var(--danger);
+}
+
+.chart-tooltip {
+  position: absolute;
+  top: 8px;
+  min-width: 130px;
+  padding: 6px 10px;
+  background: var(--panel-raised);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.72rem;
+  line-height: 1.5;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.chart-tooltip strong {
+  display: block;
+  font-size: 0.78rem;
+  margin-bottom: 2px;
+}
+
+.chart-tooltip .tt-sustained {
+  color: var(--accent);
+}
+
+.chart-tooltip .tt-structural {
+  color: var(--danger);
 }
 
 #performance-chart .sustained-line {

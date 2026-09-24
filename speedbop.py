@@ -238,6 +238,12 @@ def gs_from_pulls(pulls: int) -> float:
     return round(pulls / 3, 1)
 
 
+def phad_cells_from_load(load: float, fp: int) -> float:
+    """Rule-of-thumb PHAD-cell turn rate: every FP's worth of load spent
+    turns one cell -- e.g. 24 load at 12 FP turns 2 cells."""
+    return load / fp
+
+
 @dataclass(frozen=True)
 class TurnPerformance:
     """The result of resolving one turn's movement via calculate_performance().
@@ -377,8 +383,11 @@ class SustainedTurnPoint:
 
     ktas: float
     mach: float
+    speed_fp: int
     sustained_load: float
     max_load: int
+    sustained_phad_cells: float
+    max_phad_cells: float
     engine_output: float
     total_drag: float
 
@@ -393,8 +402,9 @@ def sustained_turn_profile(
     """Sustained-turn performance across a range of speeds at one altitude --
     the data behind an energy-maneuverability chart: for each speed, how
     many Gs can this aircraft sustain indefinitely (sustained_load) versus
-    how many Gs the airframe can take at all (max_load). See
-    find_best_sustained_turn() for where those two curves cross.
+    how many Gs the airframe can take at all (max_load), and the PHAD-cell
+    turn rate each implies. See find_best_sustained_turn() for where the
+    sustained_load/max_load curves cross.
 
     The speed range is entirely up to the caller (a chart, a script, a
     test) -- this just builds one AircraftState per KTAS value and reads
@@ -403,12 +413,20 @@ def sustained_turn_profile(
     points = []
     for ktas in ktas_values:
         state = AircraftState(adc, weight, ktas, altitude)
+        # Matches calculate_performance()'s own speed_fp_from_ktas(get_keas())
+        # -- the FP a turn's segment length is actually measured against.
+        speed_fp = speed_fp_from_ktas(state.get_keas())
+        sustained_load = state.get_sustained_load(afterburner)
+        max_load = state.get_max_load()
         points.append(
             SustainedTurnPoint(
                 ktas=ktas,
                 mach=state.get_mach(),
-                sustained_load=state.get_sustained_load(afterburner),
-                max_load=state.get_max_load(),
+                speed_fp=speed_fp,
+                sustained_load=sustained_load,
+                max_load=max_load,
+                sustained_phad_cells=phad_cells_from_load(sustained_load, speed_fp),
+                max_phad_cells=phad_cells_from_load(max_load, speed_fp),
                 engine_output=state.get_engine_output(afterburner),
                 total_drag=state.get_total_drag(),
             )
@@ -429,6 +447,7 @@ class BestSustainedTurn:
 
     ktas: float
     load: float
+    phad_cells: float
 
 
 def find_best_sustained_turn(points: list[SustainedTurnPoint]) -> BestSustainedTurn | None:
@@ -453,12 +472,21 @@ def find_best_sustained_turn(points: list[SustainedTurnPoint]) -> BestSustainedT
         curr_diff = curr.sustained_load - curr.max_load
 
         if prev_diff == 0:
-            return BestSustainedTurn(ktas=prev.ktas, load=prev.sustained_load)
+            return BestSustainedTurn(
+                ktas=prev.ktas, load=prev.sustained_load, phad_cells=prev.sustained_phad_cells
+            )
         if (prev_diff < 0) != (curr_diff < 0):
             t = prev_diff / (prev_diff - curr_diff)
+            ktas = prev.ktas + t * (curr.ktas - prev.ktas)
+            load = prev.sustained_load + t * (curr.sustained_load - prev.sustained_load)
+            # speed_fp is a step function of KEAS, and this function only
+            # sees ktas (not the altitude needed to recompute KEAS) -- prev's
+            # FP is a fine approximation given how narrow the bracket between
+            # two adjacent profile samples usually is.
             return BestSustainedTurn(
-                ktas=prev.ktas + t * (curr.ktas - prev.ktas),
-                load=prev.sustained_load + t * (curr.sustained_load - prev.sustained_load),
+                ktas=ktas,
+                load=load,
+                phad_cells=phad_cells_from_load(load, prev.speed_fp),
             )
     return None
 

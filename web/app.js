@@ -182,6 +182,11 @@ function updatePerformanceScreen() {
   const toggle = document.getElementById("performance-afterburner-toggle");
   const afterburner = !toggle.disabled && toggle.checked;
 
+  // 120% of this airframe's own safe load reads better than a flat cap for
+  // most aircraft -- 36 loads (12G) only kicks in as a ceiling for one with
+  // an unusually high safe load.
+  const loadCap = Math.min(1.2 * adc.characteristics.combat_safe_load, PERFORMANCE_LOAD_CAP);
+
   const ktasValues = [];
   for (let ktas = 0; ktas <= PERFORMANCE_KTAS_MAX; ktas += PERFORMANCE_KTAS_STEP) {
     ktasValues.push(ktas);
@@ -193,17 +198,20 @@ function updatePerformanceScreen() {
   // than the already-.toJs()'d copy -- Pyodide hands it back to Python as
   // the same underlying list, no reconversion needed.
   const bestProxy = speedbop.find_best_sustained_turn(profile);
-  const best = bestProxy ? { ktas: bestProxy.ktas, load: bestProxy.load } : null;
+  const best = bestProxy
+    ? { ktas: bestProxy.ktas, load: bestProxy.load, phadCells: bestProxy.phad_cells }
+    : null;
 
   const modeLabel = afterburner ? "AB" : "dry";
   document.getElementById("performance-chart-caption").textContent = best
     ? `${entry.name} @ ${altitude} alt, ${modeLabel} power -- best sustained turn: ` +
-      `${Math.round(best.ktas)} kt / ${round1(best.load)} loads`
+      `${Math.round(best.ktas)} kt / ${round1(best.load)} loads / ${round1(best.phadCells)} PHAD cells`
     : `${entry.name} @ ${altitude} alt, ${modeLabel} power -- no sustained-turn crossing in range`;
-  document.getElementById("performance-chart").innerHTML = buildSustainedTurnChartSvg(points, best);
+
+  renderSustainedTurnChart(document.getElementById("performance-chart"), points, best, loadCap);
 }
 
-function buildSustainedTurnChartSvg(points, best) {
+function renderSustainedTurnChart(container, points, best, loadCap) {
   const width = 300;
   const height = 200;
   const padLeft = 28;
@@ -212,7 +220,6 @@ function buildSustainedTurnChartSvg(points, best) {
   const padBottom = 20;
   const plotW = width - padLeft - padRight;
   const plotH = height - padTop - padBottom;
-  const loadCap = PERFORMANCE_LOAD_CAP;
 
   const ktasMax = Math.max(...points.map((p) => p.ktas)) * 1.02;
 
@@ -228,12 +235,12 @@ function buildSustainedTurnChartSvg(points, best) {
     <text x="${padLeft}" y="${height - 4}">0</text>
     <text x="${padLeft + plotW}" y="${height - 4}" text-anchor="end">${Math.round(ktasMax)} kt</text>
     <text x="2" y="${padTop + plotH}">0</text>
-    <text x="2" y="${padTop + 6}">${loadCap} loads (12G)</text>
+    <text x="2" y="${padTop + 6}">${round1(loadCap)} loads (${round1(loadCap / 3)}G)</text>
   `;
 
   // Only label the best point if it actually falls within the capped
-  // display range -- a crossing above 36 loads isn't in the realistic
-  // window this chart is deliberately zoomed to.
+  // display range -- a crossing above the cap isn't in the window this
+  // chart is deliberately zoomed to.
   let bestMarker = "";
   if (best && best.load <= loadCap) {
     const bx = x(best.ktas);
@@ -244,14 +251,85 @@ function buildSustainedTurnChartSvg(points, best) {
       `Best: ${Math.round(best.ktas)}kt / ${round1(best.load)} loads</text>`;
   }
 
-  return (
+  container.innerHTML =
     `<svg viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">` +
     axes +
     `<polyline class="structural-line" points="${pathFor((p) => p.max_load)}"></polyline>` +
     `<polyline class="sustained-line" points="${pathFor((p) => p.sustained_load)}"></polyline>` +
     bestMarker +
-    `</svg>`
-  );
+    `<rect class="hover-target" x="${padLeft}" y="${padTop}" width="${plotW}" height="${plotH}"></rect>` +
+    `<g class="crosshair hidden">` +
+    `<line class="crosshair-line" x1="0" y1="${padTop}" x2="0" y2="${padTop + plotH}"></line>` +
+    `<circle class="crosshair-dot sustained-dot" r="2.6"></circle>` +
+    `<circle class="crosshair-dot structural-dot" r="2.6"></circle>` +
+    `</g>` +
+    `</svg>`;
+
+  wireSustainedTurnChartInteractivity(container, points, { x, y, width, padLeft, plotW, ktasMax });
+}
+
+function wireSustainedTurnChartInteractivity(container, points, scale) {
+  const svg = container.querySelector("svg");
+  const hoverTarget = container.querySelector(".hover-target");
+  const crosshair = container.querySelector(".crosshair");
+  const crosshairLine = container.querySelector(".crosshair-line");
+  const sustainedDot = container.querySelector(".sustained-dot");
+  const structuralDot = container.querySelector(".structural-dot");
+  const tooltip = document.getElementById("performance-chart-tooltip");
+
+  function nearestPoint(event) {
+    const rect = svg.getBoundingClientRect();
+    const svgX = ((event.clientX - rect.left) / rect.width) * scale.width;
+    const ktas = Math.min(
+      Math.max(((svgX - scale.padLeft) / scale.plotW) * scale.ktasMax, 0),
+      points[points.length - 1].ktas
+    );
+    const index = Math.min(
+      points.length - 1,
+      Math.max(0, Math.round(ktas / PERFORMANCE_KTAS_STEP))
+    );
+    return points[index];
+  }
+
+  function showTooltip(event) {
+    const p = nearestPoint(event);
+    const px = scale.x(p.ktas);
+
+    crosshair.classList.remove("hidden");
+    crosshairLine.setAttribute("x1", px.toFixed(1));
+    crosshairLine.setAttribute("x2", px.toFixed(1));
+    sustainedDot.setAttribute("cx", px.toFixed(1));
+    sustainedDot.setAttribute("cy", scale.y(p.sustained_load).toFixed(1));
+    structuralDot.setAttribute("cx", px.toFixed(1));
+    structuralDot.setAttribute("cy", scale.y(p.max_load).toFixed(1));
+
+    tooltip.innerHTML =
+      `<strong>${Math.round(p.ktas)} kt</strong>` +
+      `<span class="tt-sustained">Sustained: ${round1(p.sustained_load)} loads ` +
+      `(${round1(p.sustained_phad_cells)} cells)</span><br>` +
+      `<span class="tt-structural">Structural: ${p.max_load} loads ` +
+      `(${round1(p.max_phad_cells)} cells)</span>`;
+    tooltip.classList.remove("hidden");
+
+    // Flip sides so the tooltip never overflows the chart's edge.
+    const rightHalf = px > scale.width / 2;
+    tooltip.style.left = rightHalf ? "" : `${(px / scale.width) * 100}%`;
+    tooltip.style.right = rightHalf ? `${((scale.width - px) / scale.width) * 100}%` : "";
+  }
+
+  function hideTooltip(event) {
+    // Touch has no real "hover" -- lifting the finger fires pointerleave
+    // too, and hiding right then would make the tooltip flash and vanish
+    // before it could be read. Leave it up until a different point is
+    // touched instead; only a real mouse pointer clears it on leave.
+    if (event && event.pointerType === "touch") return;
+    crosshair.classList.add("hidden");
+    tooltip.classList.add("hidden");
+  }
+
+  hoverTarget.addEventListener("pointermove", showTooltip);
+  hoverTarget.addEventListener("pointerdown", showTooltip);
+  hoverTarget.addEventListener("pointerleave", hideTooltip);
 }
 
 document.getElementById("open-performance-screen-btn").addEventListener("click", () => {
