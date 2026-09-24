@@ -228,6 +228,7 @@ class TurnPerformance:
     gravity_delta_ktas: float
     form_delta_ktas: float
     engine_delta_ktas: float
+    afterburner: bool
 
     old_state: AircraftState
     new_state: AircraftState
@@ -245,8 +246,12 @@ class TurnPerformance:
         return self.old_state.adc.lift.alpha_max
 
     @property
-    def max_engine_output(self, afterburner: bool = True) -> float:
-        return self.old_state.get_engine_output(afterburner)
+    def max_engine_output(self) -> float:
+        # A property can't take an afterburner argument from the caller (it's
+        # always invoked as a plain attribute access) -- self.afterburner is
+        # what this turn actually used, so that's what "max available" has
+        # to mean here, not always the afterburner-on max regardless of mode.
+        return self.old_state.get_engine_output(self.afterburner)
 
     def format(self) -> str:
         lines = [
@@ -272,6 +277,7 @@ def calculate_performance(
     segment_fp: int | None = None,
     delta_altitude: int = 0,
     engine_output: float | None = None,
+    afterburner: bool = True,
 ) -> TurnPerformance:
     # Structural load and sea level are hard limits, not suggestions -- clamp
     # here so every caller gets them for free, not just ones that also apply
@@ -298,8 +304,10 @@ def calculate_performance(
     gravity_delta_ktas = float(delta_altitude) / speed * 60 * -1
     form_delta_ktas = state.get_total_drag() / state.get_smash() * 10
 
-    # A caller may set this explicitly (e.g. a throttle setting other than max).
-    max_engine_output = state.get_engine_output()
+    # A caller may set this explicitly (e.g. a throttle setting other than
+    # max); either way it's capped by whichever chart the afterburner toggle
+    # selects -- you can't request more thrust than that mode actually has.
+    max_engine_output = state.get_engine_output(afterburner)
     engine_delta_ktas = (
         max_engine_output
         if engine_output is None
@@ -326,6 +334,7 @@ def calculate_performance(
         gravity_delta_ktas=gravity_delta_ktas,
         form_delta_ktas=form_delta_ktas,
         engine_delta_ktas=engine_delta_ktas,
+        afterburner=afterburner,
         old_state=state,
         new_state=new_state,
     )
@@ -354,6 +363,7 @@ class PerformanceHistory:
         segment_fp: int | None = None,
         delta_altitude: int = 0,
         engine_output: float | None = None,
+        afterburner: bool = True,
     ) -> TurnPerformance:
         performance = calculate_performance(
             self.current_state,
@@ -361,6 +371,7 @@ class PerformanceHistory:
             segment_fp=segment_fp,
             delta_altitude=delta_altitude,
             engine_output=engine_output,
+            afterburner=afterburner,
         )
         self.turns.append(performance)
         return performance

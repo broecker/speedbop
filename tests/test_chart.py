@@ -116,7 +116,7 @@ def test_chart_detects_crossing_isobars():
     low = Isobar(output=50.0, altitude=[0.0, 300.0], mach=[0.5, 2.0])
     high = Isobar(output=100.0, altitude=[0.0, 300.0], mach=[0.9, 1.0])
 
-    with pytest.raises(ValueError, match="isobars cross"):
+    with pytest.raises(ValueError, match="cross near altitude"):
         IsobarChart([low, high])
 
 

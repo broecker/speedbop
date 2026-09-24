@@ -66,17 +66,20 @@ async function writeFile(path, contents) {
 
 async function loadAircraftFiles(entry) {
   // Fetches an aircraft's data card JSON, then reads *its own*
-  // dry_engine_output field to find and fetch the matching isobar CSV --
-  // the manifest doesn't duplicate that filename, so there's nothing to
-  // keep in sync between the two files.
+  // dry_engine_output/ab_engine_output fields to find and fetch the
+  // matching isobar CSVs -- the manifest doesn't duplicate those filenames,
+  // so there's nothing to keep in sync between the files. ab_engine_output
+  // is optional (only afterburning aircraft have one).
   const jsonText = await fetchText(`adc/${entry.path}`);
   await writeFile(`adc/${entry.path}`, jsonText);
 
   const adcDict = JSON.parse(jsonText);
-  const chartPath = adcDict.dry_engine_output;
-  if (chartPath) {
-    const csvText = await fetchText(`adc/${chartPath}`);
-    await writeFile(`adc/${chartPath}`, csvText);
+  for (const key of ["dry_engine_output", "ab_engine_output"]) {
+    const chartPath = adcDict[key];
+    if (chartPath) {
+      const csvText = await fetchText(`adc/${chartPath}`);
+      await writeFile(`adc/${chartPath}`, csvText);
+    }
   }
 }
 
@@ -136,6 +139,7 @@ document.getElementById("setup-form").addEventListener("submit", (event) => {
 
   document.getElementById("turn-aircraft-name").textContent = currentAircraftEntry().name;
   document.getElementById("history-list").innerHTML = "";
+  setupAfterburnerToggle(state);
   renderState(history.current_state);
   showScreen("turn-screen");
 });
@@ -167,6 +171,37 @@ function stepperValue(name) {
   const output = document.querySelector(`.stepper[data-stepper="${name}"] output`);
   return Number(output.textContent);
 }
+
+// ---------------------------------------------------------------------
+// Turn screen: afterburner toggle
+// ---------------------------------------------------------------------
+
+// Set once per aircraft (on setup, not on every turn) -- otherwise a
+// mid-flight "switch to dry for the rest of this run" choice would get
+// silently reset back to on after every resolved turn.
+function setupAfterburnerToggle(state) {
+  const toggle = document.getElementById("afterburner-toggle");
+  const hasAfterburner = !!state.adc.ab_engine_output;
+
+  toggle.disabled = !hasAfterburner;
+  toggle.checked = hasAfterburner; // on by default when the aircraft has one
+
+  document.getElementById("afterburner-caption").textContent = hasAfterburner
+    ? ""
+    : "This aircraft has no afterburner.";
+}
+
+function afterburnerEnabled() {
+  const toggle = document.getElementById("afterburner-toggle");
+  return !toggle.disabled && toggle.checked;
+}
+
+document.getElementById("afterburner-toggle").addEventListener("change", () => {
+  // Only the max-output hint and chart depend on the toggle directly; the
+  // engine-output field's typed value is left alone so flipping the toggle
+  // to compare modes doesn't clobber whatever the player already entered.
+  updateEngineMaxDisplays(history.current_state);
+});
 
 // ---------------------------------------------------------------------
 // Turn screen: max pulls (structural load limit)
@@ -217,35 +252,47 @@ function renderState(state) {
   document.querySelector(".state-bar").classList.toggle("danger", critical);
 
   setMaxPulls(state.get_max_load());
-  setDefaultEngineOutput(state);
-  renderEngineChart(state);
+  setDefaultEngineOutputValue(state);
+  updateEngineMaxDisplays(state);
 }
 
 // Sticky by default: once a turn has resolved, the next turn's default is
 // whatever engine output actually got used last turn (itself possibly an
 // override), not always back to max -- matches how a throttle setting
 // tends to persist turn to turn unless deliberately changed.
-function setDefaultEngineOutput(state) {
-  const maxOutput = state.get_engine_output();
+function setDefaultEngineOutputValue(state) {
   const lastTurn = history.turns.length > 0 ? history.turns[history.turns.length - 1] : null;
-  const defaultValue = lastTurn ? lastTurn.engine_delta_ktas : maxOutput;
-
+  const defaultValue = lastTurn
+    ? lastTurn.engine_delta_ktas
+    : state.get_engine_output(afterburnerEnabled());
   document.getElementById("engine-output-input").value = round1(defaultValue);
+}
+
+// Unlike setDefaultEngineOutputValue(), this depends only on the current
+// toggle state, not on turn history -- so it's also what the toggle's own
+// change listener calls, without touching whatever the player has typed.
+function updateEngineMaxDisplays(state) {
+  const afterburner = afterburnerEnabled();
+  const maxOutput = state.get_engine_output(afterburner);
   document.getElementById("max-engine-hint").textContent = `Max: ${maxOutput}`;
+  renderEngineChart(state, afterburner);
 }
 
 // ---------------------------------------------------------------------
 // Turn screen: engine output chart
 // ---------------------------------------------------------------------
 
-function renderEngineChart(state) {
-  const rows = state.adc.dry_engine_output.to_rows().toJs({ dict_converter: Object.fromEntries });
+function renderEngineChart(state, afterburner) {
+  const usingAb = afterburner && !!state.adc.ab_engine_output;
+  const chart = usingAb ? state.adc.ab_engine_output : state.adc.dry_engine_output;
+  const rows = chart.to_rows().toJs({ dict_converter: Object.fromEntries });
   const currentAltitude = state.altitude;
   const currentMach = state.get_mach();
-  const maxOutput = state.get_engine_output();
+  const maxOutput = state.get_engine_output(afterburner);
 
   document.getElementById("engine-chart-caption").textContent =
-    `Current point: ${currentMach} mach @ ${currentAltitude} alt → max output ${maxOutput}`;
+    `${usingAb ? "AB" : "Dry"} chart -- current point: ${currentMach} mach @ ` +
+    `${currentAltitude} alt → max output ${maxOutput}`;
   document.getElementById("engine-chart").innerHTML =
     buildEngineChartSvg(rows, currentAltitude, currentMach);
 }
@@ -325,7 +372,7 @@ function renderBreakdown(performance) {
     ["Induced ΔKTAS", round1(performance.induced_delta_ktas), false],
     ["Gravity ΔKTAS", round1(performance.gravity_delta_ktas), false],
     ["Form ΔKTAS", round1(performance.form_delta_ktas), false],
-    ["Engine ΔKTAS", round1(performance.engine_delta_ktas), false],
+    ["Engine ΔKTAS", `${round1(performance.engine_delta_ktas)} (${performance.afterburner ? "AB" : "dry"})`, false],
     ["New speed", `${Math.round(performance.new_state.ktas)} (${performance.new_speed_fp} FP)`, false],
   ];
 
@@ -363,8 +410,9 @@ document.getElementById("resolve-turn-btn").addEventListener("click", () => {
   const segmentFp = segmentFpRaw === "" ? null : parseInt(segmentFpRaw, 10);
   const engineOutputRaw = document.getElementById("engine-output-input").value;
   const engineOutput = engineOutputRaw === "" ? null : parseFloat(engineOutputRaw);
+  const afterburner = afterburnerEnabled();
 
-  const performance = history.resolve_turn(pulls, segmentFp, deltaAltitude, engineOutput);
+  const performance = history.resolve_turn(pulls, segmentFp, deltaAltitude, engineOutput, afterburner);
 
   renderState(history.current_state);
   renderBreakdown(performance);
