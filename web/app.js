@@ -383,10 +383,8 @@ function wireSustainedTurnChartInteractivity(container, points, scale) {
 
     tooltip.innerHTML =
       `<strong>${Math.round(p.ktas)} kt (${p.speed_fp} FP)</strong>` +
-      `<span class="tt-sustained">Sustained: ${round1(p.sustained_load)} loads ` +
-      `(${round1(p.sustained_phad_cells)} cells)</span><br>` +
-      `<span class="tt-structural">Structural: ${p.max_load} loads ` +
-      `(${round1(p.max_phad_cells)} cells)</span><br>` +
+      `<span class="tt-sustained">Sustained: ${round1(p.sustained_load)} loads</span><br>` +
+      `<span class="tt-structural">Structural: ${p.max_load} loads</span><br>` +
       `<span class="tt-cells">Turn rate: ${p.max_pullable_cells} PHAD cells</span>`;
     tooltip.classList.remove("hidden");
 
