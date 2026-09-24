@@ -239,9 +239,9 @@ def gs_from_pulls(pulls: int) -> float:
 
 
 def phad_cells_from_load(load: float, fp: int) -> float:
-    """Rule-of-thumb PHAD-cell turn rate: every FP's worth of load spent
-    turns one cell -- e.g. 24 load at 12 FP turns 2 cells."""
-    return load / fp
+    """Rule-of-thumb PHAD-cell turn rate: every half-FP's worth of load
+    spent turns one cell -- e.g. 8 load at 8 FP turns 2 cells."""
+    return 2 * load / fp
 
 
 @dataclass(frozen=True)

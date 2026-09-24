@@ -524,12 +524,12 @@ def test_get_sustained_load_afterburner_increases_it():
 # ---------------------------------------------------------------------------
 
 def test_phad_cells_from_load_matches_the_rule_of_thumb_example():
-    # "having 12 fp and pulling 24 load allows us to turn 2 cells"
-    assert phad_cells_from_load(load=24.0, fp=12) == pytest.approx(2.0)
+    # "an 8 load turn at 8 fp should yield 2 cells in a level turn"
+    assert phad_cells_from_load(load=8.0, fp=8) == pytest.approx(2.0)
 
 
 def test_phad_cells_from_load_is_proportional_to_load():
-    assert phad_cells_from_load(load=6.0, fp=12) == pytest.approx(0.5)
+    assert phad_cells_from_load(load=6.0, fp=12) == pytest.approx(1.0)
     assert phad_cells_from_load(load=0.0, fp=12) == pytest.approx(0.0)
 
 
