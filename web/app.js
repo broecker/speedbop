@@ -150,6 +150,7 @@ document.getElementById("setup-form").addEventListener("submit", (event) => {
 
 const PERFORMANCE_KTAS_STEP = 10;
 const PERFORMANCE_KTAS_MAX = 800;
+const PERFORMANCE_LOAD_CAP = 36; // 12 Gs -- keeps the chart zoomed on the realistic range
 
 function performanceAircraftEntry() {
   const path = document.getElementById("performance-aircraft-select").value;
@@ -186,16 +187,23 @@ function updatePerformanceScreen() {
     ktasValues.push(ktas);
   }
 
-  const points = speedbop
-    .sustained_turn_profile(adc, weight, altitude, ktasValues, afterburner)
-    .toJs({ dict_converter: Object.fromEntries });
+  const profile = speedbop.sustained_turn_profile(adc, weight, altitude, ktasValues, afterburner);
+  const points = profile.toJs({ dict_converter: Object.fromEntries });
+  // Pass the original PyProxy list straight into another Python call rather
+  // than the already-.toJs()'d copy -- Pyodide hands it back to Python as
+  // the same underlying list, no reconversion needed.
+  const bestProxy = speedbop.find_best_sustained_turn(profile);
+  const best = bestProxy ? { ktas: bestProxy.ktas, load: bestProxy.load } : null;
 
-  document.getElementById("performance-chart-caption").textContent =
-    `${entry.name} @ ${altitude} alt, ${afterburner ? "AB" : "dry"} power`;
-  document.getElementById("performance-chart").innerHTML = buildSustainedTurnChartSvg(points);
+  const modeLabel = afterburner ? "AB" : "dry";
+  document.getElementById("performance-chart-caption").textContent = best
+    ? `${entry.name} @ ${altitude} alt, ${modeLabel} power -- best sustained turn: ` +
+      `${Math.round(best.ktas)} kt / ${round1(best.load)} loads`
+    : `${entry.name} @ ${altitude} alt, ${modeLabel} power -- no sustained-turn crossing in range`;
+  document.getElementById("performance-chart").innerHTML = buildSustainedTurnChartSvg(points, best);
 }
 
-function buildSustainedTurnChartSvg(points) {
+function buildSustainedTurnChartSvg(points, best) {
   const width = 300;
   const height = 200;
   const padLeft = 28;
@@ -204,18 +212,15 @@ function buildSustainedTurnChartSvg(points) {
   const padBottom = 20;
   const plotW = width - padLeft - padRight;
   const plotH = height - padTop - padBottom;
-
-  const toGs = (load) => load / 3; // matches gs_from_pulls(), unrounded for a smooth curve
+  const loadCap = PERFORMANCE_LOAD_CAP;
 
   const ktasMax = Math.max(...points.map((p) => p.ktas)) * 1.02;
-  const gsMax =
-    Math.max(...points.map((p) => Math.max(toGs(p.sustained_load), toGs(p.max_load)))) * 1.05;
 
   const x = (ktas) => padLeft + (ktas / ktasMax) * plotW;
-  const y = (gs) => padTop + plotH - (gs / gsMax) * plotH;
+  const y = (load) => padTop + plotH - (Math.min(load, loadCap) / loadCap) * plotH;
 
   const pathFor = (getLoad) =>
-    points.map((p) => `${x(p.ktas).toFixed(1)},${y(toGs(getLoad(p))).toFixed(1)}`).join(" ");
+    points.map((p) => `${x(p.ktas).toFixed(1)},${y(getLoad(p)).toFixed(1)}`).join(" ");
 
   const axes = `
     <line class="axis-line" x1="${padLeft}" y1="${padTop}" x2="${padLeft}" y2="${padTop + plotH}"></line>
@@ -223,14 +228,28 @@ function buildSustainedTurnChartSvg(points) {
     <text x="${padLeft}" y="${height - 4}">0</text>
     <text x="${padLeft + plotW}" y="${height - 4}" text-anchor="end">${Math.round(ktasMax)} kt</text>
     <text x="2" y="${padTop + plotH}">0</text>
-    <text x="2" y="${padTop + 6}">${gsMax.toFixed(1)}g</text>
+    <text x="2" y="${padTop + 6}">${loadCap} loads (12G)</text>
   `;
+
+  // Only label the best point if it actually falls within the capped
+  // display range -- a crossing above 36 loads isn't in the realistic
+  // window this chart is deliberately zoomed to.
+  let bestMarker = "";
+  if (best && best.load <= loadCap) {
+    const bx = x(best.ktas);
+    const by = y(best.load);
+    bestMarker =
+      `<circle class="best-turn-point" cx="${bx.toFixed(1)}" cy="${by.toFixed(1)}" r="3.5"></circle>` +
+      `<text class="best-turn-label" x="${bx.toFixed(1)}" y="${(by - 7).toFixed(1)}" text-anchor="middle">` +
+      `Best: ${Math.round(best.ktas)}kt / ${round1(best.load)} loads</text>`;
+  }
 
   return (
     `<svg viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">` +
     axes +
     `<polyline class="structural-line" points="${pathFor((p) => p.max_load)}"></polyline>` +
     `<polyline class="sustained-line" points="${pathFor((p) => p.sustained_load)}"></polyline>` +
+    bestMarker +
     `</svg>`
   );
 }
