@@ -9,6 +9,7 @@
   --accent-text: #04141f;
   --danger: #ff6b6b;
   --success: #4cc38a;
+  --warning: #e8a33d;
   --radius: 12px;
   --gutter: 16px;
   --tap: 48px;
@@ -467,6 +468,18 @@ input:focus {
 
 #performance-chart .best-turn-label {
   fill: var(--text);
+  font-size: 7px;
+  font-weight: 600;
+}
+
+#performance-chart .structural-corner-point {
+  fill: var(--warning);
+  stroke: var(--panel);
+  stroke-width: 1;
+}
+
+#performance-chart .structural-corner-label {
+  fill: var(--warning);
   font-size: 7px;
   font-weight: 600;
 }

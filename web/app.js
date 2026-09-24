@@ -202,15 +202,31 @@ function updatePerformanceScreen() {
   const best = bestProxy
     ? { ktas: bestProxy.ktas, load: bestProxy.load, phadCells: bestProxy.phad_cells }
     : null;
+  // The classic aerodynamic "corner speed" -- where max_load (lift-limited)
+  // reaches the airframe's structural G rating. Purely structural, unlike
+  // "best" above: it doesn't touch thrust/drag, so it's usually well past
+  // what the sustained curve can actually hold at that speed.
+  const cornerProxy = speedbop.find_structural_corner_speed(
+    profile, adc.characteristics.combat_safe_load
+  );
+  const structuralCorner = cornerProxy ? { ktas: cornerProxy.ktas, load: cornerProxy.load } : null;
 
   const modeLabel = afterburner ? "AB" : "dry";
-  document.getElementById("performance-chart-caption").textContent = best
-    ? `${entry.name} @ ${altitude} alt, ${modeLabel} power -- corner: ` +
-      `${Math.round(best.ktas)} kt / ${round1(best.load)} loads / ${round1(best.phadCells)} PHAD cells`
-    : `${entry.name} @ ${altitude} alt, ${modeLabel} power -- no sustained-turn crossing in range`;
+  const captionParts = [`${entry.name} @ ${altitude} alt, ${modeLabel} power`];
+  captionParts.push(
+    best
+      ? `sustained: ${Math.round(best.ktas)} kt / ${round1(best.load)} loads / ${round1(best.phadCells)} PHAD cells`
+      : "no sustained-turn crossing in range"
+  );
+  if (structuralCorner) {
+    captionParts.push(`corner: ${Math.round(structuralCorner.ktas)} kt / ${round1(structuralCorner.load)} loads`);
+  }
+  document.getElementById("performance-chart-caption").textContent = captionParts.join(" -- ");
 
   const displayPoints = trimToXAxisCutoff(points, loadCap);
-  renderSustainedTurnChart(document.getElementById("performance-chart"), displayPoints, best, loadCap);
+  renderSustainedTurnChart(
+    document.getElementById("performance-chart"), displayPoints, best, loadCap, structuralCorner
+  );
 }
 
 // Past the speed where the structural curve has already run off the top of
@@ -236,7 +252,7 @@ function trimToXAxisCutoff(points, loadCap) {
   return trimmed.length >= 2 ? trimmed : points;
 }
 
-function renderSustainedTurnChart(container, points, best, loadCap) {
+function renderSustainedTurnChart(container, points, best, loadCap, structuralCorner) {
   const width = 300;
   const height = 200;
   const padLeft = 28;
@@ -287,7 +303,21 @@ function renderSustainedTurnChart(container, points, best, loadCap) {
     bestMarker =
       `<circle class="best-turn-point" cx="${bx.toFixed(1)}" cy="${by.toFixed(1)}" r="3.5"></circle>` +
       `<text class="best-turn-label" x="${bx.toFixed(1)}" y="${(by - 7).toFixed(1)}" text-anchor="middle">` +
-      `Corner: ${Math.round(best.ktas)}kt / ${round1(best.load)} loads</text>`;
+      `Sustained: ${Math.round(best.ktas)}kt / ${round1(best.load)} loads</text>`;
+  }
+
+  // The classic aerodynamic corner speed -- purely structural, so it lands
+  // wherever max_load reaches combat_safe_load regardless of the sustained
+  // curve. Styled distinctly (not blue/red/green, already claimed by the
+  // sustained/structural/cells lines) so it doesn't read as part of either.
+  let structuralCornerMarker = "";
+  if (structuralCorner && structuralCorner.load <= loadCap) {
+    const cx = x(structuralCorner.ktas);
+    const cy = y(structuralCorner.load);
+    structuralCornerMarker =
+      `<circle class="structural-corner-point" cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="3.5"></circle>` +
+      `<text class="structural-corner-label" x="${cx.toFixed(1)}" y="${(cy - 7).toFixed(1)}" text-anchor="middle">` +
+      `Corner: ${Math.round(structuralCorner.ktas)}kt / ${round1(structuralCorner.load)} loads</text>`;
   }
 
   container.innerHTML =
@@ -297,6 +327,7 @@ function renderSustainedTurnChart(container, points, best, loadCap) {
     `<polyline class="sustained-line" points="${pathFor((p) => p.sustained_load)}"></polyline>` +
     `<polyline class="cells-line" points="${cellsPath}"></polyline>` +
     bestMarker +
+    structuralCornerMarker +
     `<g class="crosshair hidden">` +
     `<line class="crosshair-line" x1="0" y1="${padTop}" x2="0" y2="${padTop + plotH}"></line>` +
     `<circle class="crosshair-dot sustained-dot" r="2.6"></circle>` +

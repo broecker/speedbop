@@ -11,12 +11,14 @@ from speedbop import (
     AircraftState,
     BestSustainedTurn,
     PerformanceHistory,
+    StructuralCornerPoint,
     SustainedTurnPoint,
     TurnPerformance,
     _bop_tablerow_lookup,
     _dataclass_from_dict,
     calculate_performance,
     find_best_sustained_turn,
+    find_structural_corner_speed,
     gs_from_pulls,
     keas_from_q,
     ktas_from_keas,
@@ -722,6 +724,72 @@ def test_find_best_sustained_turn_on_a_real_profile():
     assert best is not None
     assert 0 < best.ktas < 600
     assert best.load > 0
+
+
+# ---------------------------------------------------------------------------
+# find_structural_corner_speed
+# ---------------------------------------------------------------------------
+
+def test_find_structural_corner_speed_interpolates_the_crossing():
+    points = [
+        _sustained_point(100.0, sustained_load=0.0, max_load=5.0),
+        _sustained_point(200.0, sustained_load=0.0, max_load=9.0),
+    ]
+
+    corner = find_structural_corner_speed(points, combat_safe_load=7.0)
+
+    assert isinstance(corner, StructuralCornerPoint)
+    # max_load(100)=5, max_load(200)=9 -- 7 is 2/4 of the way there.
+    assert corner.ktas == pytest.approx(150.0)
+    assert corner.load == pytest.approx(7.0)
+
+
+def test_find_structural_corner_speed_handles_exact_equality_at_a_sample_point():
+    points = [
+        _sustained_point(100.0, sustained_load=0.0, max_load=7.0),
+        _sustained_point(200.0, sustained_load=0.0, max_load=9.0),
+    ]
+
+    corner = find_structural_corner_speed(points, combat_safe_load=7.0)
+
+    assert corner.ktas == pytest.approx(100.0)
+    assert corner.load == pytest.approx(7.0)
+
+
+def test_find_structural_corner_speed_returns_the_first_point_when_already_past_it():
+    # The structural G rating is already exceeded at the very first swept
+    # point -- the true crossing is below the swept range, so this snaps to
+    # the leftmost sample instead of extrapolating past it.
+    points = [
+        _sustained_point(100.0, sustained_load=0.0, max_load=12.0),
+        _sustained_point(200.0, sustained_load=0.0, max_load=20.0),
+    ]
+
+    corner = find_structural_corner_speed(points, combat_safe_load=7.0)
+
+    assert corner.ktas == pytest.approx(100.0)
+    assert corner.load == pytest.approx(7.0)
+
+
+def test_find_structural_corner_speed_returns_none_when_never_reached():
+    points = [
+        _sustained_point(100.0, sustained_load=0.0, max_load=2.0),
+        _sustained_point(200.0, sustained_load=0.0, max_load=4.0),
+    ]
+
+    assert find_structural_corner_speed(points, combat_safe_load=7.0) is None
+
+
+def test_find_structural_corner_speed_on_a_real_profile():
+    adc = _make_ab_adc()  # combat_safe_load=10.0
+    ktas_values = [float(k) for k in range(0, 600, 10)]
+    points = sustained_turn_profile(adc, weight=17.4, altitude=0, ktas_values=ktas_values)
+
+    corner = find_structural_corner_speed(points, adc.characteristics.combat_safe_load)
+
+    assert corner is not None
+    assert 0 < corner.ktas < 600
+    assert corner.load == pytest.approx(10.0)
 
 
 @pytest.mark.parametrize("ktas,expected", [

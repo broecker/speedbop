@@ -502,6 +502,43 @@ def find_best_sustained_turn(points: list[SustainedTurnPoint]) -> BestSustainedT
     return None
 
 
+@dataclass(frozen=True)
+class StructuralCornerPoint:
+    """The classic aerodynamic "corner speed": the interpolated point where
+    the lift-limited max_load curve first reaches the aircraft's structural
+    G rating (combat_safe_load). Purely aerodynamic/structural -- unlike
+    BestSustainedTurn, it doesn't touch thrust or drag at all, so it says
+    nothing about whether that speed/G is actually sustainable. In fact it
+    usually isn't: reaching it is typically a one-time, energy-spending
+    maneuver rather than something get_sustained_load() could hold.
+    """
+
+    ktas: float
+    load: float
+
+
+def find_structural_corner_speed(
+    points: list[SustainedTurnPoint], combat_safe_load: float
+) -> StructuralCornerPoint | None:
+    """Linearly interpolates between the two profile points straddling
+    where max_load first reaches combat_safe_load, walking the list in the
+    order given (matching sustained_turn_profile()'s ascending-KTAS sweep).
+
+    If max_load already meets combat_safe_load at the very first point (the
+    true crossing is below the swept range), that point is returned as-is
+    rather than extrapolating. Returns None if max_load never reaches
+    combat_safe_load across the swept range.
+    """
+    for prev, curr in zip(points, points[1:]):
+        if prev.max_load >= combat_safe_load:
+            return StructuralCornerPoint(ktas=prev.ktas, load=combat_safe_load)
+        if curr.max_load >= combat_safe_load:
+            t = (combat_safe_load - prev.max_load) / (curr.max_load - prev.max_load)
+            ktas = prev.ktas + t * (curr.ktas - prev.ktas)
+            return StructuralCornerPoint(ktas=ktas, load=combat_safe_load)
+    return None
+
+
 @dataclass
 class PerformanceHistory:
     """Tracks an aircraft's state turn by turn.
