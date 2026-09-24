@@ -209,7 +209,31 @@ function updatePerformanceScreen() {
       `${Math.round(best.ktas)} kt / ${round1(best.load)} loads / ${round1(best.phadCells)} PHAD cells`
     : `${entry.name} @ ${altitude} alt, ${modeLabel} power -- no sustained-turn crossing in range`;
 
-  renderSustainedTurnChart(document.getElementById("performance-chart"), points, best, loadCap);
+  const displayPoints = trimToXAxisCutoff(points, loadCap);
+  renderSustainedTurnChart(document.getElementById("performance-chart"), displayPoints, best, loadCap);
+}
+
+// Past the speed where the structural curve has already run off the top of
+// the chart AND the sustained curve has dropped to (and stays at) zero,
+// neither line has anything left to show -- structural only keeps
+// climbing and sustained only stays pinned at 0. Trims the X axis there
+// instead of stretching it out to PERFORMANCE_KTAS_MAX for no reason, with
+// a +50kt margin so the cutoff itself is still visible on the chart.
+// Waits for BOTH conditions (not just the first one) since the structural
+// curve typically exceeds loadCap well before sustained load has finished
+// its own peak-and-decline story -- cutting off at the earlier condition
+// would chop that off.
+function trimToXAxisCutoff(points, loadCap) {
+  const structuralCapPoint = points.find((p) => p.max_load >= loadCap);
+  const sustainedZeroPoint = points.find((p) => p.sustained_load === 0);
+  if (!structuralCapPoint || !sustainedZeroPoint) return points; // one never happens in range -- show it all
+
+  const cutoffKtas = Math.max(structuralCapPoint.ktas, sustainedZeroPoint.ktas) + 50;
+  const trimmed = points.filter((p) => p.ktas <= cutoffKtas);
+  // Always keep at least a couple of points -- an aircraft whose sustained
+  // load hits zero almost immediately shouldn't collapse the chart to
+  // nothing.
+  return trimmed.length >= 2 ? trimmed : points;
 }
 
 function renderSustainedTurnChart(container, points, best, loadCap) {
