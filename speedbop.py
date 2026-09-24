@@ -15,16 +15,20 @@ def _dataclass_from_dict(klass, d):
 
     try:
         fieldtypes = {f.name: f.type for f in dataclasses.fields(klass)}
-        return klass(**{
-            f: _dataclass_from_dict(fieldtypes[f], d[f]) for f in d if f in fieldtypes
-        })
+        return klass(
+            **{
+                f: _dataclass_from_dict(fieldtypes[f], d[f])
+                for f in d
+                if f in fieldtypes
+            }
+        )
     except:
         return d  # Not a dataclass field
 
 
-def _bop_tablerow_lookup(value: float, table: dict[str, tuple[any]]) -> tuple[any]:
-    # We need to check for str here, as json only accepts strings, not numbers as
-    # dict keys.
+def _bop_tablerow_lookup(value: float, table: dict[str, any]) -> any:
+    # We need to check for str here, as json only accepts strings, not numbers
+    # as dict keys.
     all_keys = sorted(table.keys())
     for key in all_keys:
         val = float(key)
@@ -47,17 +51,22 @@ class AircraftDataCard:
         combat_safe_load: float
 
     @dataclass(frozen=True)
+    class Form:
+        brake: int
+        mach_to_drag_table: dict[float, int]
+
+    @dataclass(frozen=True)
     class Stores:
         combat_weight: float
 
     @dataclass(frozen=True)
     class Lift:
         alpha_max: float
-
         mach_lcs_ids_table: dict[float, tuple[float, int]]
 
-    lift: Lift
     characteristics: Characteristics
+    form: Form
+    lift: Lift
     stores: Stores
 
     dry_engine_output: IsobarChart
@@ -119,6 +128,10 @@ class AircraftState:
         chart = self.adc.dry_engine_output
         return round(chart.interpolate(altitude=self.altitude, mach=self.get_mach()), 1)
 
+    def get_form_drag(self) -> float:
+        mach = self.get_mach()
+        return float(_bop_tablerow_lookup(mach, self.adc.form.mach_to_drag_table))
+
     def get_lcs(self) -> float:
         mach = self.get_mach()
         lcs = _bop_tablerow_lookup(mach, self.adc.lift.mach_lcs_ids_table)
@@ -140,6 +153,13 @@ class AircraftState:
         desired_q = q_from_smash(desired_smash, self.get_wing_load())
         desired_keas = keas_from_q(desired_q)
         return math.floor(desired_keas)
+
+    def get_total_drag(self) -> float:
+        form_drag = self.get_form_drag()
+        # TODO(mbroecker): Enable through toggle.
+        brake_drag = 0.0
+        stores_drag = 0.0
+        return form_drag + brake_drag + stores_drag
 
 
 def speed_fp_from_ktas(ktas: float) -> int:
@@ -264,14 +284,14 @@ def calculate_performance(
     induced_delta_ktas = dl / speed * segment_fp
 
     gravity_delta_ktas = float(delta_altitude) / speed * 60 * -1
-    form_delta_ktas = 0.0
-    # A caller may set this explicitly (e.g. a throttle setting other than
-    # max), defaulting to -- and capped at -- the chart's max available
-    # output for this state, since you can't request more thrust than the
-    # engine actually has.
+    form_delta_ktas = state.get_total_drag() / state.get_smash() * 10
+
+    # A caller may set this explicitly (e.g. a throttle setting other than max).
     max_engine_output = state.get_engine_output()
     engine_delta_ktas = (
-        max_engine_output if engine_output is None else min(engine_output, max_engine_output)
+        max_engine_output
+        if engine_output is None
+        else min(engine_output, max_engine_output)
     )
 
     new_ktas = (
