@@ -556,35 +556,39 @@ def test_sustained_turn_profile_matches_calling_aircraft_state_directly():
     assert point.speed_fp == expected_speed_fp
     assert point.sustained_load == pytest.approx(state.get_sustained_load())
     assert point.max_load == state.get_max_load()
-    assert point.max_pullable_load == math.floor(
-        max(state.get_sustained_load(), state.get_max_load())
-    )
     assert point.sustained_phad_cells == pytest.approx(
         phad_cells_from_load(state.get_sustained_load(), expected_speed_fp)
     )
     assert point.max_phad_cells == pytest.approx(
         phad_cells_from_load(state.get_max_load(), expected_speed_fp)
     )
+    assert point.max_pullable_cells == math.floor(
+        max(
+            phad_cells_from_load(state.get_sustained_load(), expected_speed_fp),
+            phad_cells_from_load(state.get_max_load(), expected_speed_fp),
+        )
+    )
     assert point.engine_output == pytest.approx(state.get_engine_output())
     assert point.total_drag == pytest.approx(state.get_total_drag())
 
 
-def test_sustained_turn_profile_max_pullable_load_takes_the_higher_curve():
+def test_sustained_turn_profile_max_pullable_cells_takes_the_higher_curve():
     # At low speed sustained_load (energy) tends to exceed max_load
     # (structural) -- the aircraft has more energy than it can structurally
-    # use; at high speed it's the reverse. max_pullable_load should track
-    # whichever is actually higher at each point, floored to an int.
+    # use; at high speed it's the reverse. max_pullable_cells should track
+    # whichever PHAD-cell rate is actually higher at each point, floored to
+    # a whole cell count (you can't turn a fractional cell).
     adc = _make_ab_adc()
     (low_speed_point,) = sustained_turn_profile(adc, weight=17.4, altitude=0, ktas_values=[120.0])
     (high_speed_point,) = sustained_turn_profile(adc, weight=17.4, altitude=0, ktas_values=[300.0])
 
     # Confirms this test actually exercises both branches of the max(),
     # not the same one twice.
-    assert low_speed_point.sustained_load > low_speed_point.max_load
-    assert high_speed_point.sustained_load < high_speed_point.max_load
+    assert low_speed_point.sustained_phad_cells > low_speed_point.max_phad_cells
+    assert high_speed_point.sustained_phad_cells < high_speed_point.max_phad_cells
 
-    assert low_speed_point.max_pullable_load == math.floor(low_speed_point.sustained_load)
-    assert high_speed_point.max_pullable_load == high_speed_point.max_load
+    assert low_speed_point.max_pullable_cells == math.floor(low_speed_point.sustained_phad_cells)
+    assert high_speed_point.max_pullable_cells == math.floor(high_speed_point.max_phad_cells)
 
 
 def test_sustained_turn_profile_speed_fp_uses_raw_ktas_not_keas():
@@ -624,12 +628,14 @@ def _sustained_point(ktas, sustained_load, max_load, speed_fp=12):
     # find_best_sustained_turn only looks at ktas/sustained_load/max_load/
     # speed_fp -- the rest are irrelevant filler for these synthetic
     # crossing scenarios.
+    sustained_phad_cells = phad_cells_from_load(sustained_load, speed_fp)
+    max_phad_cells = phad_cells_from_load(max_load, speed_fp)
     return SustainedTurnPoint(
         ktas=ktas, mach=0.5, speed_fp=speed_fp,
         sustained_load=sustained_load, max_load=max_load,
-        max_pullable_load=math.floor(max(sustained_load, max_load)),
-        sustained_phad_cells=phad_cells_from_load(sustained_load, speed_fp),
-        max_phad_cells=phad_cells_from_load(max_load, speed_fp),
+        sustained_phad_cells=sustained_phad_cells,
+        max_phad_cells=max_phad_cells,
+        max_pullable_cells=math.floor(max(sustained_phad_cells, max_phad_cells)),
         engine_output=0.0, total_drag=0.0,
     )
 

@@ -92,7 +92,7 @@
       <div class="chart-legend">
         <span><i class="legend-swatch sustained"></i> Sustained (energy-limited)</span>
         <span><i class="legend-swatch structural"></i> Max (structural)</span>
-        <span><i class="legend-swatch pullable"></i> Pullable now</span>
+        <span><i class="legend-swatch cells"></i> Turn rate (PHAD cells)</span>
       </div>
     </div>
 
@@ -123,6 +123,10 @@
   </header>
 
   <main>
+    <button type="button" id="open-performance-screen-from-turn-btn" class="link-btn">
+      View aircraft performance (EM chart) &rarr;
+    </button>
+
     <div class="field">
       <label>Pulls <span id="max-pulls-hint" class="hint">Max: &mdash;</span></label>
       <div class="stepper" data-stepper="pulls" data-min="0" data-max="40">

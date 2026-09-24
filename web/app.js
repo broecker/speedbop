@@ -228,16 +228,29 @@ function renderSustainedTurnChart(container, points, best, loadCap) {
   const x = (ktas) => padLeft + ((ktas - ktasMin) / (ktasMax - ktasMin)) * plotW;
   const y = (load) => padTop + plotH - (Math.min(load, loadCap) / loadCap) * plotH;
 
+  // PHAD cells is a completely different, much smaller-magnitude unit than
+  // loads (single digits vs. tens) -- sharing the loads axis would squash
+  // this line flat against the bottom, so it gets its own right-side scale
+  // instead, independent of loadCap.
+  const cellsMax = Math.max(1, Math.max(...points.map((p) => p.max_pullable_cells)) * 1.1);
+  const y2 = (cells) => padTop + plotH - (Math.min(cells, cellsMax) / cellsMax) * plotH;
+
   const pathFor = (getLoad) =>
     points.map((p) => `${x(p.ktas).toFixed(1)},${y(getLoad(p)).toFixed(1)}`).join(" ");
+  const cellsPath = points
+    .map((p) => `${x(p.ktas).toFixed(1)},${y2(p.max_pullable_cells).toFixed(1)}`)
+    .join(" ");
 
   const axes = `
     <line class="axis-line" x1="${padLeft}" y1="${padTop}" x2="${padLeft}" y2="${padTop + plotH}"></line>
     <line class="axis-line" x1="${padLeft}" y1="${padTop + plotH}" x2="${padLeft + plotW}" y2="${padTop + plotH}"></line>
+    <line class="axis-line cells-axis-line" x1="${padLeft + plotW}" y1="${padTop}" x2="${padLeft + plotW}" y2="${padTop + plotH}"></line>
     <text x="${padLeft}" y="${height - 4}">${Math.round(ktasMin)} kt</text>
     <text x="${padLeft + plotW}" y="${height - 4}" text-anchor="end">${Math.round(ktasMax)} kt</text>
     <text x="2" y="${padTop + plotH}">0</text>
     <text x="2" y="${padTop + 6}">${round1(loadCap)} loads (${round1(loadCap / 3)}G)</text>
+    <text class="cells-axis-label" x="${(padLeft + plotW + 2).toFixed(1)}" y="${padTop + plotH}">0</text>
+    <text class="cells-axis-label" x="${(padLeft + plotW + 2).toFixed(1)}" y="${padTop + 6}">${Math.ceil(cellsMax)} cells</text>
   `;
 
   // Only label the best point if it actually falls within the capped
@@ -258,18 +271,18 @@ function renderSustainedTurnChart(container, points, best, loadCap) {
     axes +
     `<polyline class="structural-line" points="${pathFor((p) => p.max_load)}"></polyline>` +
     `<polyline class="sustained-line" points="${pathFor((p) => p.sustained_load)}"></polyline>` +
-    `<polyline class="pullable-line" points="${pathFor((p) => p.max_pullable_load)}"></polyline>` +
+    `<polyline class="cells-line" points="${cellsPath}"></polyline>` +
     bestMarker +
     `<rect class="hover-target" x="${padLeft}" y="${padTop}" width="${plotW}" height="${plotH}"></rect>` +
     `<g class="crosshair hidden">` +
     `<line class="crosshair-line" x1="0" y1="${padTop}" x2="0" y2="${padTop + plotH}"></line>` +
     `<circle class="crosshair-dot sustained-dot" r="2.6"></circle>` +
     `<circle class="crosshair-dot structural-dot" r="2.6"></circle>` +
-    `<circle class="crosshair-dot pullable-dot" r="2.6"></circle>` +
+    `<circle class="crosshair-dot cells-dot" r="2.6"></circle>` +
     `</g>` +
     `</svg>`;
 
-  wireSustainedTurnChartInteractivity(container, points, { x, y, width, padLeft, plotW, ktasMin, ktasMax });
+  wireSustainedTurnChartInteractivity(container, points, { x, y, y2, width, padLeft, plotW, ktasMin, ktasMax });
 }
 
 function wireSustainedTurnChartInteractivity(container, points, scale) {
@@ -279,7 +292,7 @@ function wireSustainedTurnChartInteractivity(container, points, scale) {
   const crosshairLine = container.querySelector(".crosshair-line");
   const sustainedDot = container.querySelector(".sustained-dot");
   const structuralDot = container.querySelector(".structural-dot");
-  const pullableDot = container.querySelector(".pullable-dot");
+  const cellsDot = container.querySelector(".cells-dot");
   const tooltip = document.getElementById("performance-chart-tooltip");
 
   function nearestPoint(event) {
@@ -305,8 +318,8 @@ function wireSustainedTurnChartInteractivity(container, points, scale) {
     sustainedDot.setAttribute("cy", scale.y(p.sustained_load).toFixed(1));
     structuralDot.setAttribute("cx", px.toFixed(1));
     structuralDot.setAttribute("cy", scale.y(p.max_load).toFixed(1));
-    pullableDot.setAttribute("cx", px.toFixed(1));
-    pullableDot.setAttribute("cy", scale.y(p.max_pullable_load).toFixed(1));
+    cellsDot.setAttribute("cx", px.toFixed(1));
+    cellsDot.setAttribute("cy", scale.y2(p.max_pullable_cells).toFixed(1));
 
     tooltip.innerHTML =
       `<strong>${Math.round(p.ktas)} kt (${p.speed_fp} FP)</strong>` +
@@ -314,7 +327,7 @@ function wireSustainedTurnChartInteractivity(container, points, scale) {
       `(${round1(p.sustained_phad_cells)} cells)</span><br>` +
       `<span class="tt-structural">Structural: ${p.max_load} loads ` +
       `(${round1(p.max_phad_cells)} cells)</span><br>` +
-      `<span class="tt-pullable">Pullable: ${p.max_pullable_load} loads</span>`;
+      `<span class="tt-cells">Turn rate: ${p.max_pullable_cells} PHAD cells</span>`;
     tooltip.classList.remove("hidden");
 
     // Flip sides so the tooltip never overflows the chart's edge.
@@ -338,14 +351,57 @@ function wireSustainedTurnChartInteractivity(container, points, scale) {
   hoverTarget.addEventListener("pointerleave", hideTooltip);
 }
 
+// "Back" returns to whichever screen the player actually came from --
+// landing back on the setup form after opening this mid-game from the
+// turn screen would look like the game had been reset, when the
+// in-progress PerformanceHistory is untouched the whole time.
+let performanceScreenOrigin = "setup-screen";
+
+function setPerformanceScreenOrigin(origin) {
+  performanceScreenOrigin = origin;
+  document.getElementById("close-performance-screen-btn").textContent =
+    origin === "turn-screen" ? "← Back to turn" : "← Back to setup";
+}
+
 document.getElementById("open-performance-screen-btn").addEventListener("click", () => {
+  setPerformanceScreenOrigin("setup-screen");
   initPerformanceAircraftFields();
   showScreen("performance-screen");
   updatePerformanceScreen();
 });
 
+document.getElementById("open-performance-screen-from-turn-btn").addEventListener("click", () => {
+  setPerformanceScreenOrigin("turn-screen");
+
+  // Prefill with the aircraft/state actually being played, not the
+  // screen's own generic defaults -- this is a reference for the
+  // player's current situation, not a fresh lookup.
+  const entry = currentAircraftEntry();
+  const state = history.current_state;
+  const adc = speedbop.AircraftDataCard.from_json(pathlib.Path(`adc/${entry.path}`));
+
+  document.getElementById("performance-aircraft-select").value = entry.path;
+  document.getElementById("performance-weight-input").value = state.weight;
+  document.getElementById("performance-altitude-input").value = state.altitude;
+  updateAfterburnerAvailability(
+    adc,
+    document.getElementById("performance-afterburner-toggle"),
+    document.getElementById("performance-afterburner-caption")
+  );
+  // Match the turn screen's own current AB mode rather than always
+  // resetting to "on by default", so the chart reflects how they're
+  // actually flying right now.
+  const turnToggle = document.getElementById("afterburner-toggle");
+  if (!turnToggle.disabled) {
+    document.getElementById("performance-afterburner-toggle").checked = turnToggle.checked;
+  }
+
+  showScreen("performance-screen");
+  updatePerformanceScreen();
+});
+
 document.getElementById("close-performance-screen-btn").addEventListener("click", () => {
-  showScreen("setup-screen");
+  showScreen(performanceScreenOrigin);
 });
 
 document.getElementById("performance-aircraft-select").addEventListener("change", () => {

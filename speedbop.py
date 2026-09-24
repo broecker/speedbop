@@ -386,9 +386,9 @@ class SustainedTurnPoint:
     speed_fp: int
     sustained_load: float
     max_load: int
-    max_pullable_load: int
     sustained_phad_cells: float
     max_phad_cells: float
+    max_pullable_cells: int
     engine_output: float
     total_drag: float
 
@@ -423,6 +423,8 @@ def sustained_turn_profile(
         speed_fp = speed_fp_from_ktas(ktas)
         sustained_load = state.get_sustained_load(afterburner)
         max_load = state.get_max_load()
+        sustained_phad_cells = phad_cells_from_load(sustained_load, speed_fp)
+        max_phad_cells = phad_cells_from_load(max_load, speed_fp)
         points.append(
             SustainedTurnPoint(
                 ktas=ktas,
@@ -430,9 +432,12 @@ def sustained_turn_profile(
                 speed_fp=speed_fp,
                 sustained_load=sustained_load,
                 max_load=max_load,
-                max_pullable_load=math.floor(max(sustained_load, max_load)),
-                sustained_phad_cells=phad_cells_from_load(sustained_load, speed_fp),
-                max_phad_cells=phad_cells_from_load(max_load, speed_fp),
+                sustained_phad_cells=sustained_phad_cells,
+                max_phad_cells=max_phad_cells,
+                # Whichever of the two turn rates is actually achievable at
+                # this speed, as a whole cell count -- you can't turn a
+                # fractional PHAD cell.
+                max_pullable_cells=math.floor(max(sustained_phad_cells, max_phad_cells)),
                 engine_output=state.get_engine_output(afterburner),
                 total_drag=state.get_total_drag(),
             )

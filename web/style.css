@@ -388,7 +388,7 @@ input:focus {
   fill: var(--danger);
 }
 
-#performance-chart .crosshair-dot.pullable-dot {
+#performance-chart .crosshair-dot.cells-dot {
   fill: var(--success);
 }
 
@@ -420,7 +420,7 @@ input:focus {
   color: var(--danger);
 }
 
-.chart-tooltip .tt-pullable {
+.chart-tooltip .tt-cells {
   color: var(--success);
 }
 
@@ -437,11 +437,21 @@ input:focus {
   stroke-dasharray: 4 3;
 }
 
-#performance-chart .pullable-line {
+#performance-chart .cells-line {
   fill: none;
   stroke: var(--success);
   stroke-width: 1.5;
   stroke-dasharray: 1 2;
+}
+
+#performance-chart .cells-axis-line {
+  stroke: var(--success);
+  stroke-width: 1;
+  opacity: 0.5;
+}
+
+#performance-chart .cells-axis-label {
+  fill: var(--success);
 }
 
 #performance-chart .best-turn-point {
@@ -480,7 +490,7 @@ input:focus {
   background: var(--danger);
 }
 
-.legend-swatch.pullable {
+.legend-swatch.cells {
   background: var(--success);
 }
 
