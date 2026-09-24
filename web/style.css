@@ -361,12 +361,17 @@ input:focus {
 
 #performance-chart {
   width: 100%;
+  position: relative;
 }
 
 #performance-chart .hover-target {
-  fill: transparent;
+  position: absolute;
+  inset: 0;
   cursor: crosshair;
   touch-action: none;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 #performance-chart .crosshair-line {

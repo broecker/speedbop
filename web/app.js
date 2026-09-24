@@ -297,14 +297,19 @@ function renderSustainedTurnChart(container, points, best, loadCap) {
     `<polyline class="sustained-line" points="${pathFor((p) => p.sustained_load)}"></polyline>` +
     `<polyline class="cells-line" points="${cellsPath}"></polyline>` +
     bestMarker +
-    `<rect class="hover-target" x="${padLeft}" y="${padTop}" width="${plotW}" height="${plotH}"></rect>` +
     `<g class="crosshair hidden">` +
     `<line class="crosshair-line" x1="0" y1="${padTop}" x2="0" y2="${padTop + plotH}"></line>` +
     `<circle class="crosshair-dot sustained-dot" r="2.6"></circle>` +
     `<circle class="crosshair-dot structural-dot" r="2.6"></circle>` +
     `<circle class="crosshair-dot cells-dot" r="2.6"></circle>` +
     `</g>` +
-    `</svg>`;
+    `</svg>` +
+    // A plain HTML overlay, not an SVG <rect> -- Chromium/Safari don't
+    // reliably honor touch-action:none on SVG geometry elements (a touch
+    // drag on an in-SVG rect gets cancelled by the browser a couple of
+    // moves in, verified against a minimal repro), so hit-testing lives
+    // in the DOM layer instead, sized to exactly cover the SVG below it.
+    `<div class="hover-target"></div>`;
 
   wireSustainedTurnChartInteractivity(container, points, { x, y, y2, width, padLeft, plotW, ktasMin, ktasMax });
 }
@@ -370,8 +375,17 @@ function wireSustainedTurnChartInteractivity(container, points, scale) {
     tooltip.classList.add("hidden");
   }
 
+  function onPointerDown(event) {
+    // Explicit capture (rather than relying on implicit touch capture)
+    // guarantees pointermove keeps targeting this element -- and so keeps
+    // sweeping the tooltip -- even once the finger drifts past the
+    // chart's edge mid-drag.
+    hoverTarget.setPointerCapture(event.pointerId);
+    showTooltip(event);
+  }
+
+  hoverTarget.addEventListener("pointerdown", onPointerDown);
   hoverTarget.addEventListener("pointermove", showTooltip);
-  hoverTarget.addEventListener("pointerdown", showTooltip);
   hoverTarget.addEventListener("pointerleave", hideTooltip);
 }
 
