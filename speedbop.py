@@ -69,6 +69,7 @@ class AircraftDataCard:
     lift: Lift
     stores: Stores
 
+    ab_engine_output: IsobarChart | None
     dry_engine_output: IsobarChart
 
     @classmethod
@@ -76,11 +77,19 @@ class AircraftDataCard:
         with open(path, "r") as file:
             adc_dict = json.loads(file.read())
 
-            # Let's replace the relative path to the engine chart with an actual chart
-            # instance.
-            if adc_dict["dry_engine_output"]:
-                chart_file = path.parent / adc_dict["dry_engine_output"]
-                adc_dict["dry_engine_output"] = IsobarChart(load_isobars(chart_file))
+            # Let's replace the relative path to the engine chart with an actual
+            # chart instance.
+            dry_chart_file = path.parent / adc_dict["dry_engine_output"]
+            adc_dict["dry_engine_output"] = IsobarChart(
+                load_isobars(dry_chart_file))
+            # AB engine output is optional.
+            try:
+                ab_chart_file = path.parent / adc_dict["ab_engine_output"]
+                adc_dict["ab_engine_output"] = IsobarChart(
+                    load_isobars(ab_chart_file))
+            except KeyError:
+                # Expected, this plane does not have an afterburning engine.
+                adc_dict["ab_engine_output"] = None
 
             return _dataclass_from_dict(AircraftDataCard, adc_dict)
 
@@ -124,8 +133,11 @@ class AircraftState:
         mach = keas * math.exp(0.0045 * self.altitude) / 674.6
         return round(mach, 1)
 
-    def get_engine_output(self) -> float:
-        chart = self.adc.dry_engine_output
+    def get_engine_output(self, afterburner: bool = True) -> float:
+        if afterburner and self.adc.ab_engine_output:
+            chart = self.adc.ab_engine_output
+        else:
+            chart = self.adc.dry_engine_output
         return round(chart.interpolate(altitude=self.altitude, mach=self.get_mach()), 1)
 
     def get_form_drag(self) -> float:
@@ -233,8 +245,8 @@ class TurnPerformance:
         return self.old_state.adc.lift.alpha_max
 
     @property
-    def max_engine_output(self) -> float:
-        return self.old_state.get_engine_output()
+    def max_engine_output(self, afterburner: bool = True) -> float:
+        return self.old_state.get_engine_output(afterburner)
 
     def format(self) -> str:
         lines = [
@@ -358,8 +370,8 @@ class PerformanceHistory:
 
 
 def main() -> None:
-    adc = AircraftDataCard.from_json(pathlib.Path("adc/fj-3m.json"))
-    state = AircraftState(adc, weight=17.4, ktas=485, altitude=75)
+    adc = AircraftDataCard.from_json(pathlib.Path("adc/swift-mk5.json"))
+    state = AircraftState(adc, weight=17.4, ktas=385, altitude=35)
 
     print("Wing load: ", state.get_wing_load())
     print("Safe load: ", state.get_safe_load())

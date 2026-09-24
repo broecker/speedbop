@@ -128,8 +128,7 @@ class IsobarChart:
                     direction = sign
                 elif sign != direction:
                     raise ValueError(
-                        f"isobars cross near altitude={altitude}: their relative "
-                        "mach order isn't consistent across the chart. Check the "
+                        f"isobars M{lower} and M{upper} cross near altitude {altitude}: their relative mach order isn't consistent across the chart. Check the "
                         "digitized points for a transcription error -- isobars "
                         "must not cross."
                     )
@@ -164,9 +163,13 @@ def load_isobars(path: str) -> list[Isobar]:
         reader = csv.DictReader(f)
         for row in reader:
             output = float(row["output"])
-            groups.setdefault(output, []).append((float(row["altitude"]), float(row["mach"])))
+            groups.setdefault(output, []).append(
+                (float(row["altitude"]), float(row["mach"]))
+            )
 
     return [
-        Isobar(output=output, altitude=[a for a, _ in points], mach=[m for _, m in points])
+        Isobar(
+            output=output, altitude=[a for a, _ in points], mach=[m for _, m in points]
+        )
         for output, points in groups.items()
     ]

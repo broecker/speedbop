@@ -1,0 +1,41 @@
+{
+  "name": "Swift FR.Mk 5",
+  "version": "1.25.01",
+  "characteristics": {
+    "wing_area": 3.3,
+    "combat_safe_load": 23
+  },
+  "form": {
+    "mach_to_drag_table": {
+      "0.79": 25,
+      "0.82": 27,
+      "0.85": 29,
+      "0.87": 30,
+      "0.90": 32,
+      "0.93": 34,
+      "0.98": 37,
+      "1.01": 39,
+      "1.04": 40,
+      "1.06": 42,
+      "1.09": 43
+    },
+    "brake": "82"
+  },
+  "lift": {
+    "alpha_max": 25.7,
+    "mach_lcs_ids_table": {
+      "0.79": [5.6, 255],
+      "0.84": [5.2, 227],
+      "0.89": [4.9, 206],
+      "0.94": [4.6, 189],
+      "1.00": [4.3, 176],
+      "1.05": [4.4, 167],
+      "1.10": [4.5, 158]
+    }
+  },
+  "stores": {
+    "combat_weight": 15.8
+  },
+  "dry_engine_output": "rr_avon_ra7r_dry.csv",
+  "ab_engine_output": "rr_avon_ra7r_ab.csv"
+}
