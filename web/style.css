@@ -371,6 +371,18 @@ input:focus {
   stroke-dasharray: 4 3;
 }
 
+#performance-chart .best-turn-point {
+  fill: var(--text);
+  stroke: var(--panel);
+  stroke-width: 1;
+}
+
+#performance-chart .best-turn-label {
+  fill: var(--text);
+  font-size: 7px;
+  font-weight: 600;
+}
+
 .chart-legend {
   display: flex;
   gap: 16px;

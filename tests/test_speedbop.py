@@ -9,12 +9,14 @@ import speedbop
 from speedbop import (
     AircraftDataCard,
     AircraftState,
+    BestSustainedTurn,
     PerformanceHistory,
     SustainedTurnPoint,
     TurnPerformance,
     _bop_tablerow_lookup,
     _dataclass_from_dict,
     calculate_performance,
+    find_best_sustained_turn,
     gs_from_pulls,
     keas_from_q,
     ktas_from_keas,
@@ -551,6 +553,101 @@ def test_sustained_turn_profile_afterburner_toggle_threads_through():
 
     assert ab_point.sustained_load > dry_point.sustained_load
     assert ab_point.engine_output > dry_point.engine_output
+
+
+# ---------------------------------------------------------------------------
+# find_best_sustained_turn
+# ---------------------------------------------------------------------------
+
+def _sustained_point(ktas, sustained_load, max_load):
+    # find_best_sustained_turn only looks at ktas/sustained_load/max_load --
+    # the rest are irrelevant filler for these synthetic crossing scenarios.
+    return SustainedTurnPoint(
+        ktas=ktas, mach=0.5, sustained_load=sustained_load, max_load=max_load,
+        engine_output=0.0, total_drag=0.0,
+    )
+
+
+def test_find_best_sustained_turn_interpolates_the_crossing():
+    points = [
+        _sustained_point(100.0, sustained_load=10.0, max_load=5.0),  # sustained > max
+        _sustained_point(200.0, sustained_load=8.0, max_load=9.0),   # sustained < max
+    ]
+
+    best = find_best_sustained_turn(points)
+
+    # diff(100) = 10-5 = 5; diff(200) = 8-9 = -1; crossing at t = 5/(5-(-1)) = 5/6
+    assert isinstance(best, BestSustainedTurn)
+    assert best.ktas == pytest.approx(100.0 + (5 / 6) * 100.0)
+    assert best.load == pytest.approx(10.0 + (5 / 6) * (8.0 - 10.0))
+
+
+def test_find_best_sustained_turn_handles_exact_equality_at_a_sample_point():
+    points = [
+        _sustained_point(100.0, sustained_load=10.0, max_load=10.0),  # exact crossing here
+        _sustained_point(200.0, sustained_load=8.0, max_load=12.0),
+    ]
+
+    best = find_best_sustained_turn(points)
+
+    assert best.ktas == pytest.approx(100.0)
+    assert best.load == pytest.approx(10.0)
+
+
+def test_find_best_sustained_turn_returns_none_when_curves_never_cross():
+    points = [
+        _sustained_point(100.0, sustained_load=20.0, max_load=5.0),
+        _sustained_point(200.0, sustained_load=15.0, max_load=8.0),
+    ]  # sustained_load stays above max_load throughout
+
+    assert find_best_sustained_turn(points) is None
+
+
+def test_find_best_sustained_turn_returns_the_first_crossing_found():
+    # The curves cross twice here -- the function returns the first one
+    # walking the list in order, not "the best" by any other criterion.
+    points = [
+        _sustained_point(100.0, sustained_load=10.0, max_load=5.0),   # sustained > max
+        _sustained_point(200.0, sustained_load=5.0, max_load=10.0),   # sustained < max (1st crossing)
+        _sustained_point(300.0, sustained_load=12.0, max_load=8.0),   # sustained > max again (2nd)
+    ]
+
+    best = find_best_sustained_turn(points)
+
+    assert 100.0 < best.ktas < 200.0
+
+
+def test_find_best_sustained_turn_skips_the_zero_airspeed_dead_zone():
+    # Regression test: a profile starting at ktas=0 has max_load=0 there
+    # (get_max_load() bottoms out at 0 the same way get_sustained_load()
+    # does, since get_smash() is 0 too) -- sustained_load=0 as well, so the
+    # very first pair used to look like an exact "crossing" at ktas=0,
+    # load=0, even though it's really just "the aircraft can't fly yet,"
+    # not a meaningful sustained turn point. The real crossing further
+    # along the curve should be found instead.
+    points = [
+        _sustained_point(0.0, sustained_load=0.0, max_load=0.0),
+        _sustained_point(50.0, sustained_load=0.0, max_load=0.0),
+        _sustained_point(100.0, sustained_load=10.0, max_load=5.0),
+        _sustained_point(200.0, sustained_load=8.0, max_load=9.0),
+    ]
+
+    best = find_best_sustained_turn(points)
+
+    assert best.ktas > 100.0
+    assert best.load > 0
+
+
+def test_find_best_sustained_turn_on_a_real_profile():
+    adc = _make_ab_adc()
+    ktas_values = [float(k) for k in range(0, 600, 10)]
+    points = sustained_turn_profile(adc, weight=17.4, altitude=0, ktas_values=ktas_values)
+
+    best = find_best_sustained_turn(points)
+
+    assert best is not None
+    assert 0 < best.ktas < 600
+    assert best.load > 0
 
 
 @pytest.mark.parametrize("ktas,expected", [

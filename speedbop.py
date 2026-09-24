@@ -393,9 +393,8 @@ def sustained_turn_profile(
     """Sustained-turn performance across a range of speeds at one altitude --
     the data behind an energy-maneuverability chart: for each speed, how
     many Gs can this aircraft sustain indefinitely (sustained_load) versus
-    how many Gs the airframe can take at all (max_load). Where those two
-    cross is the aircraft's "corner point" -- below it, turn performance is
-    energy-limited; above it, structural.
+    how many Gs the airframe can take at all (max_load). See
+    find_best_sustained_turn() for where those two curves cross.
 
     The speed range is entirely up to the caller (a chart, a script, a
     test) -- this just builds one AircraftState per KTAS value and reads
@@ -415,6 +414,53 @@ def sustained_turn_profile(
             )
         )
     return points
+
+
+@dataclass(frozen=True)
+class BestSustainedTurn:
+    """Where a sustained_turn_profile() sweep's sustained_load and max_load
+    curves cross -- the fastest speed still limited by the airframe rather
+    than energy. Below this speed, more Gs are available than the aircraft
+    can structurally use; above it, more Gs are structurally available than
+    the aircraft has the energy to sustain -- so this crossing is the best
+    sustained turn an aircraft can fly (most Gs it can BOTH survive AND
+    hold indefinitely at once).
+    """
+
+    ktas: float
+    load: float
+
+
+def find_best_sustained_turn(points: list[SustainedTurnPoint]) -> BestSustainedTurn | None:
+    """Linearly interpolates between the two profile points straddling
+    where sustained_load and max_load cross, walking the list in the order
+    given (matching sustained_turn_profile()'s ascending-KTAS sweep) and
+    returning the first crossing found. Returns None if the two curves
+    never cross across the swept range -- one dominates the other
+    throughout, so there's no single best point to highlight.
+
+    Points with max_load <= 0 (near-zero airspeed, where get_smash() and
+    get_max_load() both bottom out at 0) are skipped first -- otherwise a
+    profile starting at ktas=0 finds a trivial "crossing" right at the
+    start, where both curves are pinned at zero because the aircraft can't
+    generate any lift at all yet, not because that's a meaningful sustained
+    turn point.
+    """
+    flying = [p for p in points if p.max_load > 0]
+
+    for prev, curr in zip(flying, flying[1:]):
+        prev_diff = prev.sustained_load - prev.max_load
+        curr_diff = curr.sustained_load - curr.max_load
+
+        if prev_diff == 0:
+            return BestSustainedTurn(ktas=prev.ktas, load=prev.sustained_load)
+        if (prev_diff < 0) != (curr_diff < 0):
+            t = prev_diff / (prev_diff - curr_diff)
+            return BestSustainedTurn(
+                ktas=prev.ktas + t * (curr.ktas - prev.ktas),
+                load=prev.sustained_load + t * (curr.sustained_load - prev.sustained_load),
+            )
+    return None
 
 
 @dataclass
