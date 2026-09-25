@@ -10,6 +10,99 @@ into a mobile-first turn calculator.
 inline on this page -- the link above points at the same file served
 statically via GitHub Pages, where it does.)
 
+## Running the site without GitHub Pages
+
+The whole app is static files -- `index.html`, `web/app.js`, `speedbop.py`,
+`chart.py`, and everything under `adc/` are fetched at runtime by the
+browser (Pyodide loads them into an in-memory filesystem, then imports
+`speedbop` as a real Python module). There's no build step, so any static
+file server works. From the repo root:
+
+```
+python3 -m http.server 8000
+```
+
+Then open `http://localhost:8000/index.html`. That's it.
+
+Opening `index.html` directly from disk (`file://...`) won't work --
+browsers block the `fetch()` calls the app uses to load `adc/index.json`
+and the Python source files under that origin, so it needs to be served
+over `http://` (or `https://`), even locally. Pyodide itself still loads
+from its public CDN (`cdn.jsdelivr.net`), so the serving machine needs
+outbound internet access the first time (the browser caches it after).
+
+## Adding a new aircraft
+
+Adding an aircraft is a pure data change -- no code or build changes
+needed, since `adc/index.json` and each aircraft's own JSON are read at
+runtime (see `loadAircraftFiles()` in `web/app.js`). To add one:
+
+1. **Create `adc/<id>.json`** with the aircraft's stats. `adc/fj-3m.json`
+   is a complete, minimal example:
+
+   ```json
+   {
+     "name": "FJ-3M Fury",
+     "version": "1.25.01",
+     "characteristics": {
+       "wing_area": 3.0,
+       "combat_safe_load": 21
+     },
+     "form": {
+       "brake": "33",
+       "mach_to_drag_table": { "0.72": 19, "0.76": 21, "...": "..." }
+     },
+     "lift": {
+       "alpha_max": 22.4,
+       "mach_lcs_ids_table": { "0.72": [4.7, 328], "...": "..." }
+     },
+     "stores": {
+       "combat_weight": 15.7
+     },
+     "dry_engine_output": "j65-w-4b.csv",
+     "ab_engine_output": "some-ab-engine.csv"
+   }
+   ```
+
+   `mach_to_drag_table` and `mach_lcs_ids_table` (`[lcs, ids]` pairs) are
+   read straight off the physical aircraft data card -- these are literal
+   lookup tables in the game itself, not something to derive with
+   `e6b/fit.py` (that toolkit is only for the E6B slide rule's own
+   keas/q/mach/smash conversions, common to every aircraft; see below).
+   `combat_safe_load` is in loads (1 load = 1/3 G, matching
+   `gs_from_pulls()`), not G's directly. `ab_engine_output` is optional --
+   omit it entirely for an aircraft with no afterburner.
+
+2. **Add the engine output chart(s)** as CSV files next to the JSON (e.g.
+   `adc/j65-w-4b.csv`), one row per digitized isobar point:
+
+   ```
+   output,altitude,mach
+   75,250,0.0
+   75,310,0.105
+   70,185,0.0
+   ```
+
+   Rows sharing an `output` value form one isobar; see "Reading 2D charts:
+   chart.py" below for how these get interpolated. `ab_engine_output`
+   needs its own separate CSV if present.
+
+3. **Register it in `adc/index.json`**:
+
+   ```json
+   { "id": "your-id", "name": "Your Aircraft", "version": "1.0", "path": "your-id.json" }
+   ```
+
+4. **Verify it**: `python3 -m pytest` catches malformed JSON or a missing
+   required field; loading the aircraft also re-checks that no two
+   isobars in its engine chart(s) cross (`IsobarChart` validates this at
+   construction time). Then run the site locally (see above) and confirm
+   the new aircraft appears in the picker and its EM chart/turn
+   calculations look sane.
+
+5. Open a PR with the new `adc/*.json`/`*.csv` files and the
+   `adc/index.json` entry.
+
 ## E6B formula derivation
 
 The game's performance calculations are done by hand with an E6B-style
