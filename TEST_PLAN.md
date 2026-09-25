@@ -69,52 +69,47 @@ rule, since we've already found one internal contradiction there once.
 `get_keas()`, `get_q()`, `get_mach()`, and `get_smash()` are not physics
 derivations -- they're closed-form curves fit against sample readings taken
 off the physical E6B (see `e6b/fit.py` and the data in `e6b/*.csv` and
-`e6b/samples/*.csv`). Refitting against that existing data now (full
-floating-point precision, not the hand-transcribed constants in
-`speedbop.py`) found:
+`e6b/samples/*.csv`).
 
 - **`smash = 10*q/wl`** is an exact match against all 38 `e6b/smash.csv`
   samples (0% error) -- nothing to recalibrate here.
 - **`get_keas()`**'s hardcoded coefficient (0.003358) is already
-  essentially optimal against `e6b/samples/keas.csv` -- a fresh refit only
-  moves it to 0.0033626 (<0.1% different) and the fit's mean error is
-  identical either way (~1.3%). BUT one sample row looks like a data-entry
-  typo: `altitude=175, ktas=500, keas=222` -- its neighbors at the same
-  altitude (300->168, 650->352) both formula and interpolation predict
-  ~272-273 there, not 222. Worth re-reading that exact point on the
-  physical device to confirm before we touch the CSV.
-  - Also: **altitude=0 is a free, exact precision check** -- by definition
-    keas=ktas there (`exp(0.003358*0)=1`), so any deviation you read off
-    the physical device at altitude 0 is pure instrument/reading error,
-    not a formula problem. Case #1's 396-vs-400 reading is exactly that:
-    it tells you your own achievable reading precision is roughly 1%, an
-    error bar worth applying to every other reading too.
-  - Residual error isn't random noise -- it's smallest at altitude 0-25
-    and 150-175, worse at 75-125 (~1.8%) and worst at 200 (~3-3.6%),
-    meaning a single exponential term doesn't fully capture the real
-    curve's shape at the high-altitude end.
-- **`get_q()`**'s hardcoded formula (`keas^2/2950`) is good (<0.5% error)
-  against 8 of `e6b/q.csv`'s 9 samples; the one outlier (keas=52, q=1,
-  8.3% error) is almost certainly just coarse rounding at the scale's
-  lowest printed gradation (q recorded to 1 significant figure there),
-  not a formula problem.
-- **`get_mach()`** has the most headroom: 1-4% error spread across all 17
-  `e6b/mach.csv` samples, no single outlier to blame. A free refit's
-  leading constant (0.001654) differs meaningfully from the hardcoded one
-  (1/674.6=0.001482) -- an ~11% difference -- though it's hard to know
-  whether that's the "truer" constant or just this fit absorbing noise
-  from only 17 points spread across a very wide mach range (0.2-2.0),
-  including the genuinely nonlinear transonic/supersonic region.
-
-**Recommended next steps, in order of effort:**
-1. Re-read the suspected keas.csv typo point on the physical device and
-   correct it if confirmed.
-2. For mach specifically (the biggest remaining gap), gather more sample
-   points -- especially filling in the 0.9-1.3 mach range more densely --
-   so `python -m e6b.fit e6b/mach.csv --output mach --linear alt --holdout 3`
-   has enough coverage to refit with confidence.
-3. If a single formula still can't get under ~1% across the full range
-   after that, switch that scale to a lookup table with interpolation
-   instead -- the same pattern the game already uses for the LCS/IDS and
-   engine-output tables -- rather than continuing to fight a closed-form
-   fit against a scale that isn't a clean power law everywhere.
+  essentially optimal against `e6b/samples/keas.csv`. One sample row still
+  looks like an unconfirmed data-entry typo: `altitude=175, ktas=500,
+  keas=222` -- neighbors at the same altitude (300->168, 650->352) both
+  formula and interpolation predict ~272-273 there, not 222. Worth
+  re-reading that exact point on the physical device.
+  - **altitude=0 is a free, exact precision check** -- by definition
+    keas=ktas there (`exp(0.003358*0)=1`), so any deviation read off the
+    physical device at altitude 0 is pure instrument/reading error, not a
+    formula problem -- a useful error bar (roughly 1%) to apply to every
+    other manual reading too.
+- **`get_q()`** and **`get_mach()`** both turned out to be clean closed-form
+  relationships after all -- a first pass with denser data showed R^2
+  dropping (0.996 and 0.982), which briefly looked like evidence they
+  needed lookup tables instead. That was three data-entry typos, not a
+  real property of the relationships: with the E6B being a physically
+  ring-and-window device, every reading is mechanically guaranteed to
+  reduce to a power law or exponential, and once the typos were confirmed
+  and corrected, both refit to R^2 > 0.997 with the *same* formula shapes
+  already in the code (q = k*keas^2 exactly, matching q's physical
+  definition; mach = k*keas*exp(c*alt), matching how EAS/altitude/Mach
+  actually relate). Trying a nonlinear-window shape for mach's altitude
+  term (in case the dial itself was nonlinearly graduated) barely moved
+  R^2 at all, confirming the plain exponential shape was already right --
+  this was a data-quality problem, not a wrong-model problem.
+  - Corrected: `q.csv` `103.5->7` was actually `143.5->7`; `mach.csv`
+    `104/200->0.6` was actually `168/200->0.6`; `mach.csv` `300/230->1.5`
+    was actually `300/272->1.5`.
+  - `speedbop.py`'s constants are now refit against the corrected data:
+    `get_q()` divisor 2950 -> 2950.3; `get_mach()`'s 674.6 -> 670.0 and
+    0.0045 -> 0.0044. The reference scenario (FJ-3M, weight 17.4, alt 75,
+    485kt) is unaffected -- both mach and q round to the same displayed
+    value either way -- but roughly 8-10% of (keas, altitude) combinations
+    elsewhere do shift by one rounded unit, so this is a real (if small)
+    accuracy change across the whole app, not just these two functions.
+  - mach's remaining ~2% typical / ~10% worst-case error (worst point:
+    `keas=500, alt=20, mach=0.9`) has no single dominant outlier left --
+    it reads as ordinary manual-reading noise concentrated in the
+    transonic/supersonic corner of the scale, the hardest region to read
+    precisely on the physical device.

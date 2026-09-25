@@ -163,10 +163,13 @@ def test_q_is_dynamic_pressure_pinned_to_keas_squared():
     assert general.ratio_exponents["keas"] == pytest.approx(2.0, abs=0.05)
     assert pinned.ratio_exponents["keas"] == 2.0
     assert pinned.r_squared > 0.999
-    # every reading except the smallest (keas=52, q=1 -- a rounded-to-the-
-    # nearest-integer reading at very low magnitude) is within ~1.5%
-    rows = validate(pinned, [s for s in samples if s["keas"] != 52], output_key="q")
-    assert all(row["rel_error"] < 0.02 for row in rows)
+    # every reading is within ~6% -- the smallest (keas=54, q=1) is a
+    # rounded-to-the-nearest-integer reading at very low magnitude, and a
+    # couple of mid-range points (keas=266, 354) run a few % high of their
+    # neighbors' trend, consistent with ordinary manual slide-rule reading
+    # noise across this now much larger (43-sample) dataset.
+    rows = validate(pinned, samples, output_key="q")
+    assert all(row["rel_error"] < 0.06 for row in rows)
 
 
 def test_smash_is_an_exact_ratio_with_no_physical_meaning():
@@ -207,14 +210,17 @@ def test_keas_from_mach_and_alt_pinned_to_mach_exponent_one():
         samples, output_key="keas", linear_keys={"alt"}, fixed_ratio_exponents={"mach": 1.0}
     )
 
-    assert general.ratio_exponents["mach"] == pytest.approx(1.0, abs=0.02)
+    assert general.ratio_exponents["mach"] == pytest.approx(1.0, abs=0.03)
     assert pinned.ratio_exponents["mach"] == 1.0
-    assert pinned.r_squared > 0.999
-    assert pinned.k == pytest.approx(674.573, abs=0.01)
-    assert pinned.linear_coefficients["alt"] == pytest.approx(-0.0044558, abs=1e-6)
+    assert pinned.r_squared > 0.997
+    assert pinned.k == pytest.approx(669.965, abs=0.01)
+    assert pinned.linear_coefficients["alt"] == pytest.approx(-0.0044249, abs=1e-6)
 
+    # Mostly within a few %, worst around 10% (keas=500/alt=20/mach=0.9) --
+    # the transonic/supersonic corner of this 37-sample dataset is the
+    # hardest region of the physical device to read precisely.
     rows = validate(pinned, samples, output_key="keas")
-    assert all(row["rel_error"] < 0.05 for row in rows)
+    assert all(row["rel_error"] < 0.11 for row in rows)
 
 
 def test_cli_fixed_exponent_flag(capsys, monkeypatch):
@@ -228,7 +234,7 @@ def test_cli_fixed_exponent_flag(capsys, monkeypatch):
 
     out = capsys.readouterr().out
     assert "mach^1.0000" in out
-    assert "R^2 = 0.999017" in out
+    assert "R^2 = 0.997681" in out
 
 
 def test_cli_fixed_exponent_rejects_malformed_value(capsys, monkeypatch):

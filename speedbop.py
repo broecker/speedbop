@@ -121,16 +121,22 @@ class AircraftState:
 
     def get_q(self) -> float:
         keas = self.get_keas()
-        # q = keas² / 2950 (or keas² * 0.000339); empirically determined.
-        return round(keas**2 / 2950, 1)
+        # q = keas² / 2950.3 (or keas² * 0.000339); empirically determined,
+        # refit against e6b/q.csv after correcting a transcription typo
+        # (103.5->7 was actually 143.5->7) that had skewed the original fit.
+        return round(keas**2 / 2950.3, 1)
 
     def get_smash(self) -> float:
         return round(10.0 * self.get_q() / self.get_wing_load(), 1)
 
     def get_mach(self) -> float:
         keas = self.get_keas()
-        # keas = 674.6 * mach * exp(-0.0045 * altitude); empirically determined.
-        mach = keas * math.exp(0.0045 * self.altitude) / 674.6
+        # keas = 670.0 * mach * exp(-0.0044 * altitude); empirically
+        # determined, refit against e6b/mach.csv after correcting two
+        # transcription typos (104/200->0.6 was actually 168/200->0.6;
+        # 300/230->1.5 was actually 300/272->1.5) that had skewed the
+        # original fit.
+        mach = keas * math.exp(0.0044 * self.altitude) / 670.0
         return round(mach, 1)
 
     def get_engine_output(self, afterburner: bool = True) -> float:
