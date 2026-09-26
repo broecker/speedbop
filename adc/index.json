@@ -1,4 +1,5 @@
 [
   { "id": "fj-3m", "name": "FJ-3M Fury", "version": "1.25.01", "path": "fj-3m.json" },
+  { "id": "j-6c", "name": "J-6C Farmer-C", "version": "1.25.00", "path": "J-6C.json" },
   { "id": "swift-mk5", "name": "Swift FR.Mk 5", "version": "1.25.01", "path": "swift-mk5.json" }
 ]
