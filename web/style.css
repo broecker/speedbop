@@ -91,6 +91,37 @@ body {
   max-width: 32em;
 }
 
+#error-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: max(10px, env(safe-area-inset-top)) var(--gutter) 10px;
+  background: var(--danger);
+  color: var(--accent-text);
+  font-size: 0.85rem;
+}
+
+#error-banner-text {
+  flex: 1;
+  word-break: break-word;
+}
+
+#error-banner-dismiss {
+  flex: none;
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 1.2rem;
+  line-height: 1;
+  padding: 0 4px;
+  cursor: pointer;
+}
+
 /* ---------- shared screen layout ---------- */
 
 .screen {

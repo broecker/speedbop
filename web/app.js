@@ -37,6 +37,34 @@ function showFatalError(err) {
   el.classList.remove("hidden");
 }
 
+// A Python exception raised inside any speedbop/chart call surfaces here as
+// a thrown PyProxy/PythonError, same as any other JS exception -- Pyodide
+// itself keeps running fine, but without a catch at the call site the error
+// only reaches the browser console, leaving the page silently stuck
+// mid-update with no visible sign anything went wrong. reportError() +
+// guarded() below give every interactive handler that catch, so a failure
+// is always visible instead of just logged.
+function reportError(context, err) {
+  console.error(context, err);
+  const el = document.getElementById("error-banner-text");
+  el.textContent = `${context}: ${err && err.message ? err.message : err}`;
+  document.getElementById("error-banner").classList.remove("hidden");
+}
+
+function guarded(context, fn) {
+  return (...args) => {
+    try {
+      return fn(...args);
+    } catch (err) {
+      reportError(context, err);
+    }
+  };
+}
+
+document.getElementById("error-banner-dismiss").addEventListener("click", () => {
+  document.getElementById("error-banner").classList.add("hidden");
+});
+
 function showScreen(id) {
   for (const el of document.querySelectorAll(".screen")) {
     el.classList.add("hidden");
@@ -124,7 +152,7 @@ function currentAircraftEntry() {
   return aircraftManifest.find((entry) => entry.path === path);
 }
 
-document.getElementById("setup-form").addEventListener("submit", (event) => {
+document.getElementById("setup-form").addEventListener("submit", guarded("Couldn't start", (event) => {
   event.preventDefault();
 
   const path = document.getElementById("aircraft-select").value;
@@ -142,7 +170,7 @@ document.getElementById("setup-form").addEventListener("submit", (event) => {
   setupAfterburnerToggle(state);
   renderState(history.current_state);
   showScreen("turn-screen");
-});
+}));
 
 // ---------------------------------------------------------------------
 // Aircraft Performance screen: sustained turn reference (no active game)
@@ -430,14 +458,14 @@ function setPerformanceScreenOrigin(origin) {
     origin === "turn-screen" ? "← Back to turn" : "← Back to setup";
 }
 
-document.getElementById("open-performance-screen-btn").addEventListener("click", () => {
+document.getElementById("open-performance-screen-btn").addEventListener("click", guarded("Couldn't open performance screen", () => {
   setPerformanceScreenOrigin("setup-screen");
   initPerformanceAircraftFields();
   showScreen("performance-screen");
   updatePerformanceScreen();
-});
+}));
 
-document.getElementById("open-performance-screen-from-turn-btn").addEventListener("click", () => {
+document.getElementById("open-performance-screen-from-turn-btn").addEventListener("click", guarded("Couldn't open performance screen", () => {
   setPerformanceScreenOrigin("turn-screen");
 
   // Prefill with the aircraft/state actually being played, not the
@@ -465,20 +493,22 @@ document.getElementById("open-performance-screen-from-turn-btn").addEventListene
 
   showScreen("performance-screen");
   updatePerformanceScreen();
-});
+}));
 
 document.getElementById("close-performance-screen-btn").addEventListener("click", () => {
   showScreen(performanceScreenOrigin);
 });
 
-document.getElementById("performance-aircraft-select").addEventListener("change", () => {
+const guardedUpdatePerformanceScreen = guarded("Couldn't update performance screen", updatePerformanceScreen);
+
+document.getElementById("performance-aircraft-select").addEventListener("change", guarded("Couldn't update performance screen", () => {
   initPerformanceAircraftFields();
   updatePerformanceScreen();
-});
+}));
 
-document.getElementById("performance-weight-input").addEventListener("input", updatePerformanceScreen);
-document.getElementById("performance-altitude-input").addEventListener("input", updatePerformanceScreen);
-document.getElementById("performance-afterburner-toggle").addEventListener("change", updatePerformanceScreen);
+document.getElementById("performance-weight-input").addEventListener("input", guardedUpdatePerformanceScreen);
+document.getElementById("performance-altitude-input").addEventListener("input", guardedUpdatePerformanceScreen);
+document.getElementById("performance-afterburner-toggle").addEventListener("change", guardedUpdatePerformanceScreen);
 
 // ---------------------------------------------------------------------
 // Turn screen: steppers
@@ -489,7 +519,7 @@ function initSteppers() {
     const output = stepper.querySelector("output");
 
     for (const button of stepper.querySelectorAll("button")) {
-      button.addEventListener("click", () => {
+      button.addEventListener("click", guarded("Couldn't update stepper", () => {
         // Read min/max fresh from the dataset on every click, not just at
         // init -- the pulls stepper's max changes turn to turn (see
         // setMaxPulls), so a value captured once here would go stale.
@@ -498,7 +528,7 @@ function initSteppers() {
         const value = Number(output.textContent) + Number(button.dataset.step);
         output.textContent = String(Math.min(max, Math.max(min, value)));
         if (stepper.dataset.stepper === "pulls") updatePullsWarning();
-      });
+      }));
     }
   }
 }
@@ -536,12 +566,12 @@ function afterburnerEnabled() {
   return !toggle.disabled && toggle.checked;
 }
 
-document.getElementById("afterburner-toggle").addEventListener("change", () => {
+document.getElementById("afterburner-toggle").addEventListener("change", guarded("Couldn't update afterburner display", () => {
   // Only the max-output hint and chart depend on the toggle directly; the
   // engine-output field's typed value is left alone so flipping the toggle
   // to compare modes doesn't clobber whatever the player already entered.
   updateEngineMaxDisplays(history.current_state);
-});
+}));
 
 // ---------------------------------------------------------------------
 // Turn screen: max pulls (structural load limit)
@@ -744,7 +774,7 @@ function round1(x) {
   return Math.round(x * 10) / 10;
 }
 
-document.getElementById("resolve-turn-btn").addEventListener("click", () => {
+document.getElementById("resolve-turn-btn").addEventListener("click", guarded("Couldn't calculate turn performance", () => {
   const pulls = stepperValue("pulls");
   const deltaAltitude = stepperValue("delta-altitude");
   const segmentFpRaw = document.getElementById("segment-fp-input").value;
@@ -758,7 +788,7 @@ document.getElementById("resolve-turn-btn").addEventListener("click", () => {
   renderState(history.current_state);
   renderBreakdown(performance);
   addHistoryRow(history.turns.length, performance);
-});
+}));
 
 // ---------------------------------------------------------------------
 
