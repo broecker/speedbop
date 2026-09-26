@@ -67,6 +67,7 @@ class AircraftDataCard:
     characteristics: Characteristics
     form: Form
     lift: Lift
+    roll_rate: dict[float, str]
     stores: Stores
 
     ab_engine_output: IsobarChart | None
@@ -164,6 +165,10 @@ class AircraftState:
         max_load = self.adc.lift.alpha_max / self.get_lcs() * self.get_smash()
         # We don't want to exceed our max load ever, hence we round down.
         return math.floor(max_load)
+
+    def get_roll_rate(self) -> str:
+        smash = self.get_smash()
+        return _bop_tablerow_lookup(smash, self.adc.roll_rate)
 
     def calculate_corner_speed(self) -> float:
         alpha_over_lcs = self.adc.lift.alpha_max / self.get_lcs()
@@ -596,6 +601,7 @@ def main() -> None:
     print("Q:", state.get_q())
     print("Smash:", state.get_smash())
     print("Mach:", state.get_mach())
+    print("Roll rate:", state.get_roll_rate())
     print("Engine output:", state.get_engine_output())
     print("LCS:", state.get_lcs())
     print("Max load:", state.get_max_load())

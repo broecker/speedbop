@@ -585,6 +585,7 @@ function renderState(state) {
   document.getElementById("stat-speed").textContent = `${Math.round(state.ktas)} / ${fp}`;
   document.getElementById("stat-altitude").textContent = state.altitude;
   document.getElementById("stat-mach").textContent = state.get_mach();
+  document.getElementById("stat-roll-rate").textContent = state.get_roll_rate();
 
   // A red status bar is meant to grab the eye at the one moment it matters --
   // about to stall out (FP too low to maneuver) or about to hit the ground.

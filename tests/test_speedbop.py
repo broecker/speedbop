@@ -155,6 +155,7 @@ def _make_adc(**overrides):
         # test that doesn't care about form drag keeps its zero-form
         # assumption; tests that do care override this explicitly.
         form=AircraftDataCard.Form(brake=0, mach_to_drag_table={0.5: 0}),
+        roll_rate={0.5: "Slow", 1.0: "Fast"},
         stores=AircraftDataCard.Stores(combat_weight=5.0),
         dry_engine_output=IsobarChart([
             Isobar(output=30.0, altitude=[0.0, 100.0], mach=[0.3, 0.9]),
@@ -194,6 +195,7 @@ def test_aircraft_data_card_from_json_builds_nested_dataclasses(tmp_path):
         "lift": {"alpha_max": 15.0, "mach_lcs_ids_table": {"0.5": [4.0, 100]}},
         "characteristics": {"wing_area": 4.0, "combat_safe_load": 12.0},
         "form": {"brake": 33, "mach_to_drag_table": {"0.5": 10}},
+        "roll_rate": {"0.5": "Slow", "1.0": "Fast"},
         "stores": {"combat_weight": 8.5},
         "dry_engine_output": "engine.csv",
     }))
@@ -213,6 +215,7 @@ def test_aircraft_data_card_from_json_builds_nested_dataclasses(tmp_path):
     assert adc.stores.combat_weight == 8.5
     assert isinstance(adc.dry_engine_output, IsobarChart)
     assert adc.dry_engine_output.interpolate(altitude=0, mach=0.5) == pytest.approx(10.0)
+    assert adc.roll_rate == {"0.5": "Slow", "1.0": "Fast"}
     # No ab_engine_output key in the JSON -- from_json() falls back to None
     # rather than requiring every aircraft to have an afterburner.
     assert adc.ab_engine_output is None
@@ -232,6 +235,7 @@ def test_aircraft_data_card_from_json_reads_ab_engine_output_when_present(tmp_pa
         "lift": {"alpha_max": 15.0, "mach_lcs_ids_table": {"0.5": [4.0, 100]}},
         "characteristics": {"wing_area": 4.0, "combat_safe_load": 12.0},
         "form": {"brake": 33, "mach_to_drag_table": {"0.5": 10}},
+        "roll_rate": {"0.5": "Slow", "1.0": "Fast"},
         "stores": {"combat_weight": 8.5},
         "dry_engine_output": "dry.csv",
         "ab_engine_output": "ab.csv",
@@ -380,6 +384,40 @@ def test_get_ids_looks_up_by_mach():
 
     assert state.get_mach() == pytest.approx(0.5)
     assert state.get_ids() == pytest.approx(100)
+
+
+# ---------------------------------------------------------------------------
+# AircraftState.get_roll_rate()
+# ---------------------------------------------------------------------------
+
+def test_get_roll_rate_looks_up_by_smash():
+    # Table keys arrive as strings from JSON (see roll_rate: dict[float,
+    # str] in AircraftDataCard, loaded verbatim by _dataclass_from_dict
+    # since dict fields aren't recursed into) -- get_roll_rate() must
+    # tolerate that, same as get_lcs()/get_ids() do via _bop_tablerow_lookup.
+    adc = _make_adc(roll_rate={"0.8": "Slow", "4.1": "Med", "999": "Fast"})
+    state = _make_state(adc=adc, weight=17.4, ktas=100.0, altitude=0)
+
+    # Default fixture (weight=17.4, wing_area=2.0, ktas=100, altitude=0)
+    # resolves to smash=0.4, which sits below the first breakpoint.
+    assert state.get_smash() == pytest.approx(0.4)
+    assert state.get_roll_rate() == "Slow"
+
+
+def test_get_roll_rate_picks_the_next_higher_breakpoint():
+    adc = _make_adc(roll_rate={"0.3": "Slow", "0.4": "Med", "999": "Fast"})
+    state = _make_state(adc=adc, weight=17.4, ktas=100.0, altitude=0)
+
+    assert state.get_smash() == pytest.approx(0.4)
+    assert state.get_roll_rate() == "Med"
+
+
+def test_get_roll_rate_clamps_above_the_highest_smash_entry():
+    adc = _make_adc(roll_rate={"0.1": "Slow", "0.2": "Med"})
+    state = _make_state(adc=adc, weight=17.4, ktas=100.0, altitude=0)
+
+    assert state.get_smash() == pytest.approx(0.4)
+    assert state.get_roll_rate() == "Med"
 
 
 def test_get_engine_output_matches_the_isobar_chart_directly():
@@ -822,6 +860,8 @@ def test_aircraft_state_against_real_fixture():
     assert state.get_mach() == pytest.approx(0.8)
     assert state.get_engine_output() == pytest.approx(45.9)
     assert state.get_lcs() == pytest.approx(3.8)
+    # smash=8.3 clears the fixture's highest roll_rate breakpoint (4.1).
+    assert state.get_roll_rate() == "Fast"
     assert state.get_max_load() == 48
     assert state.calculate_corner_speed() == 246
 
