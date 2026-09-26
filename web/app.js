@@ -199,6 +199,7 @@ function initPerformanceAircraftFields() {
     document.getElementById("performance-afterburner-toggle"),
     document.getElementById("performance-afterburner-caption")
   );
+  adc.destroy();
 }
 
 function updatePerformanceScreen() {
@@ -211,10 +212,14 @@ function updatePerformanceScreen() {
   const toggle = document.getElementById("performance-afterburner-toggle");
   const afterburner = !toggle.disabled && toggle.checked;
 
+  // Read once and reuse -- adc.characteristics is a fresh PyProxy on every
+  // property access, so fetching it twice would create (and leak) two.
+  const characteristics = adc.characteristics;
+
   // 120% of this airframe's own safe load reads better than a flat cap for
   // most aircraft -- 36 loads (12G) only kicks in as a ceiling for one with
   // an unusually high safe load.
-  const loadCap = Math.min(1.2 * adc.characteristics.combat_safe_load, PERFORMANCE_LOAD_CAP);
+  const loadCap = Math.min(1.2 * characteristics.combat_safe_load, PERFORMANCE_LOAD_CAP);
 
   const ktasValues = [];
   for (let ktas = PERFORMANCE_KTAS_MIN; ktas <= PERFORMANCE_KTAS_MAX; ktas += PERFORMANCE_KTAS_STEP) {
@@ -234,10 +239,19 @@ function updatePerformanceScreen() {
   // reaches the airframe's structural G rating. Purely structural, unlike
   // "best" above: it doesn't touch thrust/drag, so it's usually well past
   // what the sustained curve can actually hold at that speed.
-  const cornerProxy = speedbop.find_structural_corner_speed(
-    profile, adc.characteristics.combat_safe_load
-  );
+  const cornerProxy = speedbop.find_structural_corner_speed(profile, characteristics.combat_safe_load);
   const structuralCorner = cornerProxy ? { ktas: cornerProxy.ktas, load: cornerProxy.load } : null;
+
+  // This runs on every keystroke in the weight/altitude fields -- without
+  // explicit destroy(), these PyProxies pile up faster than the JS GC (which
+  // Pyodide's automatic cleanup depends on) gets around to reclaiming them,
+  // growing memory unboundedly over a session until the tab is killed with
+  // no JS exception and nothing in the console to explain why.
+  cornerProxy?.destroy();
+  bestProxy?.destroy();
+  profile.destroy();
+  characteristics.destroy();
+  adc.destroy();
 
   const modeLabel = afterburner ? "AB" : "dry";
   const captionParts = [`${entry.name} @ ${altitude} alt, ${modeLabel} power`];
@@ -490,6 +504,11 @@ document.getElementById("open-performance-screen-from-turn-btn").addEventListene
   if (!turnToggle.disabled) {
     document.getElementById("performance-afterburner-toggle").checked = turnToggle.checked;
   }
+  // state is a fresh PyProxy from history.current_state, distinct from
+  // history's own internal reference -- destroying it only releases this
+  // access's contribution, not the underlying state history still uses.
+  state.destroy();
+  adc.destroy();
 
   showScreen("performance-screen");
   updatePerformanceScreen();
@@ -666,6 +685,14 @@ function renderEngineChart(state, afterburner) {
     `${currentAltitude} alt → max output ${maxOutput}`;
   document.getElementById("engine-chart").innerHTML =
     buildEngineChartSvg(rows, currentAltitude, currentMach);
+
+  // renderEngineChart() is the last consumer of state on every call path
+  // (from renderState() after every turn, and directly from the
+  // afterburner toggle) -- destroying it and the chart proxy here, rather
+  // than leaving them for the JS GC to eventually notice, keeps this from
+  // leaking a little more Python-side memory on every single turn.
+  chart.destroy();
+  state.destroy();
 }
 
 function buildEngineChartSvg(rows, currentAltitude, currentMach) {
@@ -788,6 +815,7 @@ document.getElementById("resolve-turn-btn").addEventListener("click", guarded("C
   renderState(history.current_state);
   renderBreakdown(performance);
   addHistoryRow(history.turns.length, performance);
+  performance.destroy();
 }));
 
 // ---------------------------------------------------------------------
