@@ -54,6 +54,6 @@
   "stores": {
     "combat_weight": 14.0
   },
-  "dry_engine_output": "wopen_wp-6a_dry.csv",
+  "dry_engine_output": "wopen_wp-6a_ab.csv",
   "ab_engine_output": "wopen_wp-6a_ab.csv"
 }

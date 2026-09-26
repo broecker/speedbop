@@ -43,6 +43,8 @@ from __future__ import annotations
 
 import csv
 from dataclasses import dataclass
+import json
+import pathlib
 
 
 def _interp(x: float, xs: list[float], ys: list[float]) -> float:
@@ -173,3 +175,31 @@ def load_isobars(path: str) -> list[Isobar]:
         )
         for output, points in groups.items()
     ]
+
+
+def validate_engine_charts() -> None:
+    engine_charts: list[pathlib.Path] = []
+    base_path = pathlib.Path("adc")
+    with open(base_path / "index.json", "r") as index_file:
+        entries = json.load(index_file)
+        for entry in entries:
+            adc_path = base_path / entry["path"]
+
+            with open(adc_path, "r") as adc_file:
+                adc = json.load(adc_file)
+
+                try:
+                    engine_charts.append(adc_path.parent / adc["ab_engine_output"])
+                except KeyError:
+                    pass
+                try:
+                    engine_charts.append(adc_path.parent / adc["dry_engine_output"])
+                except KeyError:
+                    pass
+
+    for chart_path in engine_charts:
+        _ = IsobarChart(load_isobars(chart_path))
+
+
+if __name__ == "__main__":
+    validate_engine_charts()
