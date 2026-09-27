@@ -4,7 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Speedbop</title>
-<link rel="stylesheet" href="web/style.css">
+<!-- ?v= is a manually-bumped cache-buster -- bump it whenever web/app.js or
+     web/style.css changes. Without it, a stale cached copy of either can
+     keep running behind a code fix pushed to main, since GitHub Pages sits
+     behind a CDN that doesn't invalidate instantly and this project has no
+     build step to fingerprint asset URLs automatically. -->
+<link rel="stylesheet" href="web/style.css?v=2">
 </head>
 <body>
 
@@ -203,6 +208,6 @@
 </section>
 
 <script src="https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.js"></script>
-<script type="module" src="web/app.js"></script>
+<script type="module" src="web/app.js?v=2"></script>
 </body>
 </html>

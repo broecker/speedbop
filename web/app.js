@@ -78,7 +78,12 @@ function showScreen(id) {
 // ---------------------------------------------------------------------
 
 async function fetchText(path) {
-  const response = await fetch(path);
+  // no-store, not just a revalidating fetch -- this project ships several
+  // fixes an hour during active development, and GitHub Pages sits behind
+  // a CDN that doesn't invalidate instantly. Without this, a stale cached
+  // copy of speedbop.py/chart.py/an ADC file can silently keep serving
+  // already-fixed bugs.
+  const response = await fetch(path, { cache: "no-store" });
   if (!response.ok) {
     throw new Error(`could not fetch ${path} (${response.status})`);
   }
