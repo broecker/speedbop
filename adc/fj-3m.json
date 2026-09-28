@@ -42,5 +42,5 @@
   "stores": {
     "combat_weight": 15.7
   },
-  "dry_engine_output": "j65-w-4b.csv"
+  "dry_engine_output": "engines/j65-w-4b.csv"
 }

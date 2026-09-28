@@ -59,8 +59,8 @@ runtime (see `loadAircraftFiles()` in `web/app.js`). To add one:
      "stores": {
        "combat_weight": 15.7
      },
-     "dry_engine_output": "j65-w-4b.csv",
-     "ab_engine_output": "some-ab-engine.csv"
+     "dry_engine_output": "engines/j65-w-4b.csv",
+     "ab_engine_output": "engines/some-ab-engine.csv"
    }
    ```
 
@@ -73,8 +73,8 @@ runtime (see `loadAircraftFiles()` in `web/app.js`). To add one:
    `gs_from_pulls()`), not G's directly. `ab_engine_output` is optional --
    omit it entirely for an aircraft with no afterburner.
 
-2. **Add the engine output chart(s)** as CSV files next to the JSON (e.g.
-   `adc/j65-w-4b.csv`), one row per digitized isobar point:
+2. **Add the engine output chart(s)** as CSV files under `adc/engines/`
+   (e.g. `adc/engines/j65-w-4b.csv`), one row per digitized isobar point:
 
    ```
    output,altitude,mach
@@ -320,11 +320,11 @@ isobar 70"), plus the altitude and Mach values where they cross, so the
 offending row is easy to find:
 
 ```
-OK    FJ-3M Fury (dry, adc/j65-w-4b.csv)
-FAIL  J-6C Farmer-C (AB, adc/wopen_wp-6a_ab.csv)
+OK    FJ-3M Fury (dry, adc/engines/j65-w-4b.csv)
+FAIL  J-6C Farmer-C (AB, adc/engines/wopen_wp-6a_ab.csv)
       isobar 115.0 and isobar 120.0 cross near altitude 60.0 (mach 0.7 vs 0.89): ...
-OK    Swift FR.Mk 5 (dry, adc/rr_avon_ra7r_dry.csv)
-OK    Swift FR.Mk 5 (AB, adc/rr_avon_ra7r_ab.csv)
+OK    Swift FR.Mk 5 (dry, adc/engines/rr_avon_ra7r_dry.csv)
+OK    Swift FR.Mk 5 (AB, adc/engines/rr_avon_ra7r_ab.csv)
 ```
 
 Exits 0 if every chart is valid and 1 if any failed, so it works as a

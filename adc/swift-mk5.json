@@ -41,6 +41,6 @@
   "stores": {
     "combat_weight": 15.8
   },
-  "dry_engine_output": "rr_avon_ra7r_dry.csv",
-  "ab_engine_output": "rr_avon_ra7r_ab.csv"
+  "dry_engine_output": "engines/rr_avon_ra7r_dry.csv",
+  "ab_engine_output": "engines/rr_avon_ra7r_ab.csv"
 }

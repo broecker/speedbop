@@ -53,6 +53,6 @@
   "stores": {
     "combat_weight": 20.5
   },
-  "dry_engine_output": "snecma_atar_9k-50_dry.csv",
-  "ab_engine_output": "snecma_atar_9k-50_ab.csv"
+  "dry_engine_output": "engines/snecma_atar_9k-50_dry.csv",
+  "ab_engine_output": "engines/snecma_atar_9k-50_ab.csv"
 }
