@@ -270,9 +270,27 @@ function updatePerformanceScreen() {
   }
   document.getElementById("performance-chart-caption").textContent = captionParts.join(" -- ");
 
+  // Where the aircraft actually is right now, if opened from the turn
+  // screen -- pinned at the real KTAS (not snapped to the sweep's 10kt
+  // grid), reading sustained/structural/cells off whichever swept point is
+  // closest so it tracks this chart's own curves (including "what if"
+  // weight/altitude edits) rather than a separately-computed value.
+  let currentState = null;
+  if (currentTurnKtas !== null) {
+    const closest = points.reduce((a, b) =>
+      Math.abs(b.ktas - currentTurnKtas) < Math.abs(a.ktas - currentTurnKtas) ? b : a
+    );
+    currentState = {
+      ktas: currentTurnKtas,
+      sustainedLoad: closest.sustained_load,
+      maxLoad: closest.max_load,
+      cells: closest.max_pullable_cells,
+    };
+  }
+
   const displayPoints = trimToXAxisCutoff(points, loadCap);
   renderSustainedTurnChart(
-    document.getElementById("performance-chart"), displayPoints, best, loadCap, structuralCorner
+    document.getElementById("performance-chart"), displayPoints, best, loadCap, structuralCorner, currentState
   );
 }
 
@@ -299,7 +317,7 @@ function trimToXAxisCutoff(points, loadCap) {
   return trimmed.length >= 2 ? trimmed : points;
 }
 
-function renderSustainedTurnChart(container, points, best, loadCap, structuralCorner) {
+function renderSustainedTurnChart(container, points, best, loadCap, structuralCorner, currentState) {
   const width = 300;
   const height = 200;
   const padLeft = 28;
@@ -367,12 +385,31 @@ function renderSustainedTurnChart(container, points, best, loadCap, structuralCo
       `Corner: ${Math.round(structuralCorner.ktas)}kt / ${round1(structuralCorner.load)} loads</text>`;
   }
 
+  // Where the aircraft actually is right now (turn-screen entry only) --
+  // a fixed vertical reference, not a fourth colored dot-and-label like
+  // the two crossing markers above: those name a specific speed/load pair,
+  // this names a speed and lets its hollow rings show where that speed
+  // sits against all three curves at once. Only drawn if it's still within
+  // this chart's (possibly trimmed) X range.
+  let currentStateMarker = "";
+  if (currentState && currentState.ktas >= points[0].ktas && currentState.ktas <= points[points.length - 1].ktas) {
+    const cx = x(currentState.ktas);
+    currentStateMarker =
+      `<line class="current-state-line" x1="${cx.toFixed(1)}" y1="${padTop}" x2="${cx.toFixed(1)}" y2="${padTop + plotH}"></line>` +
+      `<circle class="current-state-dot sustained" cx="${cx.toFixed(1)}" cy="${y(currentState.sustainedLoad).toFixed(1)}" r="3"></circle>` +
+      `<circle class="current-state-dot structural" cx="${cx.toFixed(1)}" cy="${y(currentState.maxLoad).toFixed(1)}" r="3"></circle>` +
+      `<circle class="current-state-dot cells" cx="${cx.toFixed(1)}" cy="${y2(currentState.cells).toFixed(1)}" r="3"></circle>` +
+      `<text class="current-state-label" x="${cx.toFixed(1)}" y="${(padTop - 2).toFixed(1)}" text-anchor="middle">` +
+      `Now: ${Math.round(currentState.ktas)}kt</text>`;
+  }
+
   container.innerHTML =
     `<svg viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">` +
     axes +
     `<polyline class="structural-line" points="${pathFor((p) => p.max_load)}"></polyline>` +
     `<polyline class="sustained-line" points="${pathFor((p) => p.sustained_load)}"></polyline>` +
     `<polyline class="cells-line" points="${cellsPath}"></polyline>` +
+    currentStateMarker +
     bestMarker +
     structuralCornerMarker +
     `<g class="crosshair hidden">` +
@@ -471,6 +508,14 @@ function wireSustainedTurnChartInteractivity(container, points, scale) {
 // in-progress PerformanceHistory is untouched the whole time.
 let performanceScreenOrigin = "setup-screen";
 
+// The KTAS actually being flown right now, captured once when entering
+// from the turn screen -- plotted as a fixed reference marker on the EM
+// chart, distinct from the weight/altitude/AB fields (which stay editable
+// for "what if" exploration and recompute the curves themselves). null in
+// the setup-screen's standalone reference mode, where there's no active
+// flight to mark.
+let currentTurnKtas = null;
+
 function setPerformanceScreenOrigin(origin) {
   performanceScreenOrigin = origin;
   document.getElementById("close-performance-screen-btn").textContent =
@@ -479,6 +524,7 @@ function setPerformanceScreenOrigin(origin) {
 
 document.getElementById("open-performance-screen-btn").addEventListener("click", guarded("Couldn't open performance screen", () => {
   setPerformanceScreenOrigin("setup-screen");
+  currentTurnKtas = null;
   initPerformanceAircraftFields();
   showScreen("performance-screen");
   updatePerformanceScreen();
@@ -492,6 +538,7 @@ document.getElementById("open-performance-screen-from-turn-btn").addEventListene
   // player's current situation, not a fresh lookup.
   const entry = currentAircraftEntry();
   const state = history.current_state;
+  currentTurnKtas = state.ktas;
   const adc = speedbop.AircraftDataCard.from_json(pathlib.Path(`adc/${entry.path}`));
 
   document.getElementById("performance-aircraft-select").value = entry.path;

@@ -516,6 +516,40 @@ input:focus {
   font-weight: 600;
 }
 
+/* Solid, unlike the dashed hover crosshair it otherwise resembles -- this
+   one is a fixed reference, not a live pointer position. */
+#performance-chart .current-state-line {
+  stroke: var(--text-dim);
+  stroke-width: 1;
+}
+
+#performance-chart .current-state-label {
+  fill: var(--text-dim);
+  font-size: 7px;
+  font-weight: 600;
+}
+
+/* Hollow rings, not filled dots -- distinguishes "the aircraft's current
+   state" from both the interactive hover crosshair's filled dots and the
+   Sustained/Corner markers' own points, while still using each curve's own
+   color so it's clear which line each ring sits on. */
+#performance-chart .current-state-dot {
+  fill: none;
+  stroke-width: 1.5;
+}
+
+#performance-chart .current-state-dot.sustained {
+  stroke: var(--accent);
+}
+
+#performance-chart .current-state-dot.structural {
+  stroke: var(--danger);
+}
+
+#performance-chart .current-state-dot.cells {
+  stroke: var(--success);
+}
+
 .chart-legend {
   display: flex;
   gap: 16px;
