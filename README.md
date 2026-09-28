@@ -93,12 +93,13 @@ runtime (see `loadAircraftFiles()` in `web/app.js`). To add one:
    { "id": "your-id", "name": "Your Aircraft", "version": "1.0", "path": "your-id.json" }
    ```
 
-4. **Verify it**: `python3 -m pytest` catches malformed JSON or a missing
-   required field; loading the aircraft also re-checks that no two
-   isobars in its engine chart(s) cross (`IsobarChart` validates this at
-   construction time). Then run the site locally (see above) and confirm
-   the new aircraft appears in the picker and its EM chart/turn
-   calculations look sane.
+4. **Verify it**: `python3 chart.py` checks every aircraft's engine
+   chart(s) for crossing isobars -- the most common digitizing mistake --
+   and names exactly which isobars and where if it finds one (see
+   "Validating every aircraft's engine charts" below). `python3 -m pytest`
+   catches malformed JSON or a missing required field. Then run the site
+   locally (see above) and confirm the new aircraft appears in the picker
+   and its EM chart/turn calculations look sane.
 
 5. Open a PR with the new `adc/*.json`/`*.csv` files and the
    `adc/index.json` entry.
@@ -296,4 +297,37 @@ real transcription error on the first pass -- isobars 65 and 70 crossed
 around altitude=245 and ended up swapped by altitude=310 (a 43% gap, not
 a rounding-level discrepancy), traced to a single mis-transcribed point
 (output=70's altitude=310 reading) and corrected against the chart.
+
+### Validating every aircraft's engine charts
+
+Digitizing a chart by hand is exactly where a single mis-typed point
+creates a crossing -- `chart.py` doubles as a standalone validator for
+every engine chart referenced from `adc/index.json`, so a bad point can be
+caught (and precisely located) before it ever reaches the app:
+
+```
+python3 chart.py
+```
+
+Checks every aircraft's dry and AB engine chart (skipping AB for an
+aircraft that doesn't have one), printing one `OK`/`FAIL` line per chart
+rather than stopping at the first problem, so a single run reports every
+issue across the whole roster instead of needing a fix-and-rerun cycle per
+chart. A `FAIL` line includes whatever `IsobarChart` itself raised at
+construction -- for a crossing, that names the two isobars by their output
+label (what's printed on the chart and in the CSV, e.g. "isobar 65 and
+isobar 70"), plus the altitude and Mach values where they cross, so the
+offending row is easy to find:
+
+```
+OK    FJ-3M Fury (dry, adc/j65-w-4b.csv)
+FAIL  J-6C Farmer-C (AB, adc/wopen_wp-6a_ab.csv)
+      isobar 115.0 and isobar 120.0 cross near altitude 60.0 (mach 0.7 vs 0.89): ...
+OK    Swift FR.Mk 5 (dry, adc/rr_avon_ra7r_dry.csv)
+OK    Swift FR.Mk 5 (AB, adc/rr_avon_ra7r_ab.csv)
+```
+
+Exits 0 if every chart is valid and 1 if any failed, so it works as a
+pass/fail check too -- worth running after digitizing or editing any
+engine chart, including as part of adding a new aircraft (see above).
 

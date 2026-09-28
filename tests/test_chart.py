@@ -120,6 +120,19 @@ def test_chart_detects_crossing_isobars():
         IsobarChart([low, high])
 
 
+def test_crossing_error_identifies_isobars_by_output():
+    # The crossing message needs to name the isobars by their output label
+    # (50/100 -- what's printed on the chart and in the CSV) rather than
+    # just the raw mach values at the crossing point, so fixing a real
+    # transcription error means looking up "isobar 50", not decoding which
+    # isobar a bare mach number belonged to.
+    low = Isobar(output=50.0, altitude=[0.0, 300.0], mach=[0.5, 2.0])
+    high = Isobar(output=100.0, altitude=[0.0, 300.0], mach=[0.9, 1.0])
+
+    with pytest.raises(ValueError, match=r"isobar 50\.0 and isobar 100\.0"):
+        IsobarChart([low, high])
+
+
 def test_chart_works_with_descending_mach_convention():
     # Some charts might run the other way: higher output = lower mach at a
     # given altitude. The bracket-and-interpolate logic must not assume

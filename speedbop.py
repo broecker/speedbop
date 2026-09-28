@@ -613,4 +613,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    validate_engine_charts()
+    main()

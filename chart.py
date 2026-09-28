@@ -120,9 +120,14 @@ class IsobarChart:
         breakpoints = sorted({a for iso in self.isobars for a in iso.altitude})
         direction = 0
         for altitude in breakpoints:
-            machs = [iso.mach_at(altitude) for iso in self.isobars]
-            for lower, upper in zip(machs, machs[1:]):
-                diff = upper - lower
+            # Paired with their isobar so a crossing can be reported by the
+            # isobar's own output label (what's actually printed on the
+            # chart and in the CSV) instead of just the raw mach values at
+            # the crossing point -- output is what you'd actually go look
+            # up to find and fix a transcription error.
+            labeled = list(zip(self.isobars, (iso.mach_at(altitude) for iso in self.isobars)))
+            for (lower_iso, lower_mach), (upper_iso, upper_mach) in zip(labeled, labeled[1:]):
+                diff = upper_mach - lower_mach
                 if diff == 0:
                     continue
                 sign = 1 if diff > 0 else -1
@@ -130,9 +135,11 @@ class IsobarChart:
                     direction = sign
                 elif sign != direction:
                     raise ValueError(
-                        f"isobars M{lower} and M{upper} cross near altitude {altitude}: their relative mach order isn't consistent across the chart. Check the "
-                        "digitized points for a transcription error -- isobars "
-                        "must not cross."
+                        f"isobar {lower_iso.output} and isobar {upper_iso.output} cross "
+                        f"near altitude {altitude} (mach {lower_mach} vs {upper_mach}): "
+                        "their relative mach order isn't consistent across the chart. "
+                        "Check the digitized points for a transcription error -- "
+                        "isobars must not cross."
                     )
 
     def interpolate(self, altitude: float, mach: float) -> float:
@@ -177,29 +184,50 @@ def load_isobars(path: str) -> list[Isobar]:
     ]
 
 
-def validate_engine_charts() -> None:
-    engine_charts: list[pathlib.Path] = []
+def validate_engine_charts() -> bool:
+    """Validate every engine output chart referenced from adc/index.json.
+
+    Prints one PASS/FAIL line per chart file rather than stopping at the
+    first bad one, so a single run reports every problem across the whole
+    roster instead of needing to be re-run after each fix. A FAIL line
+    includes whatever IsobarChart's own construction-time check raised --
+    for a crossing, that names the two isobars involved by their output
+    label (see IsobarChart._check_no_crossings) so the offending points
+    are easy to find in the CSV.
+
+    Returns True if every chart is valid; the CLI entry point below turns
+    that into a process exit code, so this can be used as a pass/fail
+    check (e.g. before committing a new or edited engine chart).
+    """
+    # (aircraft name, engine mode, chart path) -- both name and mode are
+    # needed to tell two charts for the same aircraft apart (dry vs AB).
+    engine_charts: list[tuple[str, str, pathlib.Path]] = []
     base_path = pathlib.Path("adc")
     with open(base_path / "index.json", "r") as index_file:
         entries = json.load(index_file)
         for entry in entries:
             adc_path = base_path / entry["path"]
-
             with open(adc_path, "r") as adc_file:
                 adc = json.load(adc_file)
+            for mode, key in [("dry", "dry_engine_output"), ("AB", "ab_engine_output")]:
+                if key in adc:
+                    engine_charts.append((entry["name"], mode, adc_path.parent / adc[key]))
 
-                try:
-                    engine_charts.append(adc_path.parent / adc["ab_engine_output"])
-                except KeyError:
-                    pass
-                try:
-                    engine_charts.append(adc_path.parent / adc["dry_engine_output"])
-                except KeyError:
-                    pass
+    all_valid = True
+    for name, mode, chart_path in engine_charts:
+        label = f"{name} ({mode}, {chart_path})"
+        try:
+            IsobarChart(load_isobars(chart_path))
+        except Exception as e:
+            all_valid = False
+            print(f"FAIL  {label}\n      {e}")
+        else:
+            print(f"OK    {label}")
 
-    for chart_path in engine_charts:
-        _ = IsobarChart(load_isobars(chart_path))
+    return all_valid
 
 
 if __name__ == "__main__":
-    validate_engine_charts()
+    import sys
+
+    sys.exit(0 if validate_engine_charts() else 1)
