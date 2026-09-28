@@ -634,12 +634,24 @@ function updatePullsWarning() {
 // Turn screen: rendering
 // ---------------------------------------------------------------------
 
+const ROLL_RATE_CLASSES = {
+  fast: "roll-rate-fast",
+  med: "roll-rate-med",
+  slow: "roll-rate-slow",
+};
+
 function renderState(state) {
   const fp = speedbop.speed_fp_from_ktas(state.ktas);
   document.getElementById("stat-speed").textContent = `${Math.round(state.ktas)} / ${fp}`;
   document.getElementById("stat-altitude").textContent = state.altitude;
   document.getElementById("stat-mach").textContent = state.get_mach();
-  document.getElementById("stat-roll-rate").textContent = state.get_roll_rate();
+
+  const rollRate = state.get_roll_rate();
+  const rollRateEl = document.getElementById("stat-roll-rate");
+  rollRateEl.textContent = rollRate;
+  rollRateEl.classList.remove(...Object.values(ROLL_RATE_CLASSES));
+  const rollRateClass = ROLL_RATE_CLASSES[rollRate.toLowerCase()];
+  if (rollRateClass) rollRateEl.classList.add(rollRateClass);
 
   // A red status bar is meant to grab the eye at the one moment it matters --
   // about to stall out (FP too low to maneuver) or about to hit the ground.
@@ -792,14 +804,16 @@ function renderBreakdown(performance) {
 
 function addHistoryRow(turnNumber, performance) {
   const li = document.createElement("li");
+  const newState = performance.new_state;
   li.innerHTML = `
     <span class="turn-no">#${turnNumber}</span>
     <span>
-      ${Math.round(performance.new_state.ktas)} KTAS @ ${performance.new_state.altitude}
+      ${Math.round(newState.ktas)} KTAS @ ${newState.altitude} &middot; Q ${newState.get_q()}
       <div class="turn-detail">${performance.segment_pulls} pulls, Δalt ${performance.delta_altitude}</div>
     </span>
   `;
   document.getElementById("history-list").prepend(li);
+  newState.destroy();
 }
 
 function round1(x) {

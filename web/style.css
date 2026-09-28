@@ -10,6 +10,7 @@
   --danger: #ff6b6b;
   --success: #4cc38a;
   --warning: #e8a33d;
+  --caution: #e8d43d;
   --radius: 12px;
   --gutter: 16px;
   --tap: 48px;
@@ -604,6 +605,18 @@ input:focus {
 .state-bar.danger .stat .value,
 .state-bar.danger .stat .label {
   color: #fff;
+}
+
+#stat-roll-rate.roll-rate-fast {
+  color: var(--success);
+}
+
+#stat-roll-rate.roll-rate-med {
+  color: var(--caution);
+}
+
+#stat-roll-rate.roll-rate-slow {
+  color: var(--warning);
 }
 
 /* ---------- breakdown ---------- */
