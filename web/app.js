@@ -181,10 +181,12 @@ document.getElementById("setup-form").addEventListener("submit", guarded("Couldn
 // Aircraft Performance screen: sustained turn reference (no active game)
 // ---------------------------------------------------------------------
 
-const PERFORMANCE_KTAS_MIN = 120; // 3 FP -- nothing slower is worth showing
+// Fixed EM chart axes -- the same for every aircraft, so charts can be
+// compared directly.
+const PERFORMANCE_KTAS_MIN = 100;
+const PERFORMANCE_KTAS_MAX = 780;
 const PERFORMANCE_KTAS_STEP = 10;
-const PERFORMANCE_KTAS_MAX = 800;
-const PERFORMANCE_LOAD_CAP = 36; // 12 Gs -- keeps the chart zoomed on the realistic range
+const PERFORMANCE_LOAD_MAX = 32;
 
 function performanceAircraftEntry() {
   const path = document.getElementById("performance-aircraft-select").value;
@@ -220,11 +222,6 @@ function updatePerformanceScreen() {
   // Read once and reuse -- adc.characteristics is a fresh PyProxy on every
   // property access, so fetching it twice would create (and leak) two.
   const characteristics = adc.characteristics;
-
-  // 120% of this airframe's own safe load reads better than a flat cap for
-  // most aircraft -- 36 loads (12G) only kicks in as a ceiling for one with
-  // an unusually high safe load.
-  const loadCap = Math.min(1.2 * characteristics.combat_safe_load, PERFORMANCE_LOAD_CAP);
 
   const ktasValues = [];
   for (let ktas = PERFORMANCE_KTAS_MIN; ktas <= PERFORMANCE_KTAS_MAX; ktas += PERFORMANCE_KTAS_STEP) {
@@ -288,38 +285,12 @@ function updatePerformanceScreen() {
     };
   }
 
-  const displayPoints = trimToXAxisCutoff(points, loadCap);
   renderSustainedTurnChart(
-    document.getElementById("performance-chart"), displayPoints, best, loadCap, structuralCorner, currentState
+    document.getElementById("performance-chart"), points, best, structuralCorner, currentState
   );
 }
 
-// Past the speed where the structural curve has already run off the top of
-// the chart AND the sustained curve has dropped to (and stays at) zero,
-// neither line has anything left to show -- structural only keeps
-// climbing and sustained only stays pinned at 0. Trims the X axis there
-// instead of stretching it out to PERFORMANCE_KTAS_MAX for no reason, with
-// a +50kt margin so the cutoff itself is still visible on the chart.
-// Waits for BOTH conditions (not just the first one) since the structural
-// curve typically exceeds loadCap well before sustained load has finished
-// its own peak-and-decline story -- cutting off at the earlier condition
-// would chop that off.
-function trimToXAxisCutoff(points, loadCap) {
-  const structuralCapPoint = points.find((p) => p.max_load >= loadCap);
-  // After the last nonzero point, not the first zero -- in whole loads the
-  // sustained curve can also read 0 at the slow end, before it's even risen.
-  const sustainedZeroPoint = points[points.findLastIndex((p) => p.sustained_load > 0) + 1];
-  if (!structuralCapPoint || !sustainedZeroPoint) return points; // one never happens in range -- show it all
-
-  const cutoffKtas = Math.max(structuralCapPoint.ktas, sustainedZeroPoint.ktas) + 50;
-  const trimmed = points.filter((p) => p.ktas <= cutoffKtas);
-  // Always keep at least a couple of points -- an aircraft whose sustained
-  // load hits zero almost immediately shouldn't collapse the chart to
-  // nothing.
-  return trimmed.length >= 2 ? trimmed : points;
-}
-
-function renderSustainedTurnChart(container, points, best, loadCap, structuralCorner, currentState) {
+function renderSustainedTurnChart(container, points, best, structuralCorner, currentState) {
   const width = 300;
   const height = 200;
   const padLeft = 28;
@@ -329,8 +300,9 @@ function renderSustainedTurnChart(container, points, best, loadCap, structuralCo
   const plotW = width - padLeft - padRight;
   const plotH = height - padTop - padBottom;
 
-  const ktasMin = points[0].ktas;
-  const ktasMax = Math.max(...points.map((p) => p.ktas)) * 1.02;
+  const ktasMin = PERFORMANCE_KTAS_MIN;
+  const ktasMax = PERFORMANCE_KTAS_MAX;
+  const loadCap = PERFORMANCE_LOAD_MAX;
 
   const x = (ktas) => padLeft + ((ktas - ktasMin) / (ktasMax - ktasMin)) * plotW;
   const y = (load) => padTop + plotH - (Math.min(load, loadCap) / loadCap) * plotH;
