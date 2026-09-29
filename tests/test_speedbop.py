@@ -350,13 +350,26 @@ def test_get_smash_uses_wing_load_not_a_raw_weight():
 
 
 def test_get_mach_is_the_inverse_of_the_keas_formula():
-    # keas = 674.6 * mach * exp(-0.0045*altitude), so mach = keas *
-    # exp(0.0045*altitude) / 674.6 -- and at altitude=0 that's just
-    # keas/674.6, the cleanest case to pin down independent of the
+    # keas = 670.0 * mach * exp(-0.0044*altitude), so mach = keas *
+    # exp(0.0044*altitude) / 670.0 -- and at altitude=0 that's just
+    # keas/670, the cleanest case to pin down independent of the
     # exponential term.
-    state = _make_state(ktas=674.6, altitude=0)  # keas rounds to 675
+    state = _make_state(ktas=700.0, altitude=0)
 
-    assert state.get_mach() == pytest.approx(round(675 / 674.6, 1))
+    assert state.get_mach() == pytest.approx(round(700 / 670.0, 2))
+
+
+def test_get_mach_keeps_two_decimals_so_table_lookups_pick_the_right_row():
+    # Regression test (TEST_PLAN.md #7): FJ-3M at 485 KTAS/alt 75 is mach
+    # 0.783. Rounding to one decimal (0.8) skipped past the 0.78 lift row
+    # and 0.79 drag row the slide-rule procedure actually selects.
+    adc = AircraftDataCard.from_json(REAL_ADC_PATH)
+    state = _make_state(adc=adc, weight=17.4, ktas=485.0, altitude=75)
+
+    assert state.get_mach() == pytest.approx(0.78)
+    assert state.get_lcs() == pytest.approx(4.2)
+    assert state.get_ids() == 270
+    assert state.get_form_drag() == pytest.approx(24.0)
 
 
 def test_get_mach_uses_rounded_keas_and_applies_altitude_correction():
@@ -550,6 +563,26 @@ def test_get_sustained_load_returns_zero_at_zero_speed_instead_of_dividing_by_ze
     assert state.get_sustained_load() == 0.0
 
 
+def test_get_sustained_load_matches_calculate_performance_with_form_drag_and_weight():
+    # Regression test: the synthetic fixtures have zero form drag, which hid
+    # get_sustained_load() subtracting raw drag where calculate_performance()
+    # subtracts drag/smash*10. The real FJ-3M off combat weight exercises
+    # both the form-drag conversion and the engine weight scaling.
+    adc = AircraftDataCard.from_json(REAL_ADC_PATH)
+    state = _make_state(adc=adc, weight=17.4, ktas=465.0, altitude=75)
+    assert state.get_total_drag() > 0
+    assert state.weight != adc.stores.combat_weight
+
+    sustained = state.get_sustained_load(afterburner=False)
+    assert 0 < sustained < state.get_max_load()
+
+    performance = calculate_performance(
+        state, segment_pulls=sustained, delta_altitude=0, afterburner=False
+    )
+
+    assert performance.new_state.ktas == pytest.approx(state.ktas, abs=0.01)
+
+
 def test_get_sustained_load_afterburner_increases_it():
     state = _make_state(adc=_make_ab_adc(), ktas=337.3, altitude=0)
 
@@ -617,8 +650,9 @@ def test_sustained_turn_profile_max_pullable_cells_takes_the_higher_curve():
     # (structural) -- the aircraft has more energy than it can structurally
     # use; at high speed it's the reverse. max_pullable_cells should track
     # whichever PHAD-cell rate is actually higher at each point, floored to
-    # a whole cell count (you can't turn a fractional cell).
-    adc = _make_ab_adc()
+    # a whole cell count (you can't turn a fractional cell). Combat weight
+    # matches the flying weight so engine output isn't scaled down.
+    adc = _make_ab_adc(stores=AircraftDataCard.Stores(combat_weight=17.4))
     (low_speed_point,) = sustained_turn_profile(adc, weight=17.4, altitude=0, ktas_values=[120.0])
     (high_speed_point,) = sustained_turn_profile(adc, weight=17.4, altitude=0, ktas_values=[300.0])
 
@@ -857,13 +891,13 @@ def test_aircraft_state_against_real_fixture():
     assert state.get_q() == pytest.approx(expected_q)
     assert state.get_smash() == pytest.approx(round(10.0 * expected_q / 58.0, 1))
     assert speedbop.speed_fp_from_ktas(state.ktas) == 12
-    assert state.get_mach() == pytest.approx(0.8)
-    assert state.get_engine_output() == pytest.approx(45.9)
-    assert state.get_lcs() == pytest.approx(3.8)
+    assert state.get_mach() == pytest.approx(0.78)
+    assert state.get_engine_output() == pytest.approx(46.3)
+    assert state.get_lcs() == pytest.approx(4.2)
     # smash=8.3 clears the fixture's highest roll_rate breakpoint (4.1).
     assert state.get_roll_rate() == "Fast"
-    assert state.get_max_load() == 48
-    assert state.calculate_corner_speed() == 246
+    assert state.get_max_load() == 44
+    assert state.calculate_corner_speed() == 259
 
 
 # ---------------------------------------------------------------------------
@@ -932,8 +966,37 @@ def test_calculate_performance_engine_output_can_be_overridden():
         state, segment_pulls=0, delta_altitude=0, engine_output=12.5
     )
 
-    assert performance.engine_delta_ktas == pytest.approx(12.5)
-    assert performance.new_state.ktas == pytest.approx(state.ktas + 12.5)
+    assert performance.engine_output == pytest.approx(12.5)
+    assert performance.engine_delta_ktas == pytest.approx(state.get_engine_delta_ktas(12.5))
+    assert performance.new_state.ktas == pytest.approx(
+        state.ktas + performance.engine_delta_ktas
+    )
+
+
+def test_engine_delta_ktas_scales_by_combat_weight_over_current_weight():
+    # Engine output is the base delta knots at combat weight; an aircraft
+    # twice that heavy gains half as much from the same thrust.
+    state = _make_state(weight=10.0)  # fixture combat_weight=5.0
+
+    assert state.get_engine_delta_ktas(40.0) == pytest.approx(20.0)
+
+
+def test_engine_delta_ktas_is_unscaled_at_combat_weight():
+    state = _make_state(weight=5.0)  # fixture combat_weight=5.0
+
+    assert state.get_engine_delta_ktas(40.0) == pytest.approx(40.0)
+
+
+def test_calculate_performance_applies_engine_weight_scaling():
+    state = _make_state(ktas=100.0, altitude=0, weight=10.0)  # combat_weight=5.0
+
+    performance = calculate_performance(
+        state, segment_pulls=0, delta_altitude=0, engine_output=12.0
+    )
+
+    assert performance.engine_output == pytest.approx(12.0)
+    assert performance.engine_delta_ktas == pytest.approx(6.0)
+    assert performance.new_state.ktas == pytest.approx(state.ktas + 6.0)
 
 
 def test_calculate_performance_engine_output_defaults_to_chart_max_when_not_given():
@@ -941,7 +1004,7 @@ def test_calculate_performance_engine_output_defaults_to_chart_max_when_not_give
 
     performance = calculate_performance(state, segment_pulls=0, delta_altitude=0)
 
-    assert performance.engine_delta_ktas == pytest.approx(state.get_engine_output())
+    assert performance.engine_output == pytest.approx(state.get_engine_output())
 
 
 def test_calculate_performance_clamps_engine_output_to_chart_max():
@@ -955,7 +1018,7 @@ def test_calculate_performance_clamps_engine_output_to_chart_max():
         state, segment_pulls=0, delta_altitude=0, engine_output=max_output + 50
     )
 
-    assert performance.engine_delta_ktas == pytest.approx(max_output)
+    assert performance.engine_output == pytest.approx(max_output)
 
 
 def test_calculate_performance_form_delta_ktas_uses_total_drag():
@@ -988,7 +1051,7 @@ def test_calculate_performance_afterburner_defaults_to_true():
     performance = calculate_performance(state, segment_pulls=0, delta_altitude=0)
 
     assert performance.afterburner is True
-    assert performance.engine_delta_ktas == pytest.approx(50.0)  # AB chart's value
+    assert performance.engine_output == pytest.approx(50.0)  # AB chart's value
 
 
 def test_calculate_performance_afterburner_false_uses_dry_chart():
@@ -999,7 +1062,7 @@ def test_calculate_performance_afterburner_false_uses_dry_chart():
     )
 
     assert performance.afterburner is False
-    assert performance.engine_delta_ktas == pytest.approx(30.0)  # dry chart's value
+    assert performance.engine_output == pytest.approx(30.0)  # dry chart's value
 
 
 def test_calculate_performance_engine_output_clamp_respects_afterburner_toggle():
@@ -1014,7 +1077,7 @@ def test_calculate_performance_engine_output_clamp_respects_afterburner_toggle()
         state, segment_pulls=0, delta_altitude=0, afterburner=False, engine_output=999.0
     )
 
-    assert performance.engine_delta_ktas == pytest.approx(30.0)  # dry max, not AB's 50.0
+    assert performance.engine_output == pytest.approx(30.0)  # dry max, not AB's 50.0
 
 
 def test_turn_performance_max_engine_output_respects_actual_afterburner_used():
@@ -1038,7 +1101,7 @@ def test_performance_history_resolve_turn_passes_through_afterburner():
     performance = history.resolve_turn(segment_pulls=0, afterburner=False)
 
     assert performance.afterburner is False
-    assert performance.engine_delta_ktas == pytest.approx(30.0)
+    assert performance.engine_output == pytest.approx(30.0)
 
 
 def test_calculate_performance_clamps_segment_fp_to_between_one_and_current_speed_fp():
@@ -1162,7 +1225,7 @@ def test_turn_performance_max_engine_output_is_read_off_the_old_state():
 
     assert performance.max_engine_output == pytest.approx(performance.old_state.get_engine_output())
     assert "Engine  dKTAS:" in performance.format()
-    assert f"(max {performance.max_engine_output})" in performance.format()
+    assert f"max {performance.max_engine_output})" in performance.format()
 
 
 # ---------------------------------------------------------------------------
@@ -1203,8 +1266,10 @@ def test_performance_history_resolve_turn_passes_through_engine_output_override(
 
     performance = history.resolve_turn(segment_pulls=0, delta_altitude=0, engine_output=5.0)
 
-    assert performance.engine_delta_ktas == pytest.approx(5.0)
-    assert history.current_state.ktas == pytest.approx(state.ktas + 5.0)
+    assert performance.engine_output == pytest.approx(5.0)
+    assert history.current_state.ktas == pytest.approx(
+        state.ktas + performance.engine_delta_ktas
+    )
 
 
 def test_performance_history_format_joins_every_turn():
@@ -1293,10 +1358,10 @@ def test_main_runs_and_prints_expected_values(capsys, monkeypatch):
     assert "[Performance]" in out
     assert "Pulls:         22" in out
     # Swift Mk5 has an afterburner, resolve_turn() defaults afterburner=True,
-    # and its AB chart's max at this state equals get_engine_output()'s
-    # printed value above -- main() doesn't override engine_output, so the
-    # turn's actual and max engine dKTAS should read identically.
-    assert "Engine  dKTAS: 57.1 (max 57.1)" in out
+    # and main() doesn't override engine_output, so the turn uses the AB
+    # chart's max (57.1) -- scaled by combat weight / weight (15.8/17.4)
+    # into 51.8 dKTAS.
+    assert "Engine  dKTAS: 51.8 (output 57.1, max 57.1)" in out
     # Form drag is no longer hardcoded to 0 -- Swift Mk5's form table
     # produces a nonzero value at this state's mach.
     assert "Form    dKTAS: 33.3" in out

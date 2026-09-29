@@ -717,7 +717,7 @@ function renderState(state) {
 function setDefaultEngineOutputValue(state) {
   const lastTurn = history.turns.length > 0 ? history.turns[history.turns.length - 1] : null;
   const defaultValue = lastTurn
-    ? lastTurn.engine_delta_ktas
+    ? lastTurn.engine_output
     : state.get_engine_output(afterburnerEnabled());
   document.getElementById("engine-output-input").value = round1(defaultValue);
 }
@@ -834,7 +834,8 @@ function renderBreakdown(performance) {
     ["Induced ΔKTAS", round1(performance.induced_delta_ktas), false],
     ["Gravity ΔKTAS", round1(performance.gravity_delta_ktas), false],
     ["Form ΔKTAS", round1(performance.form_delta_ktas), false],
-    ["Engine ΔKTAS", `${round1(performance.engine_delta_ktas)} (${performance.afterburner ? "AB" : "dry"})`, false],
+    ["Engine output", `${round1(performance.engine_output)} (${performance.afterburner ? "AB" : "dry"})`, false],
+    ["Engine ΔKTAS", round1(performance.engine_delta_ktas), false],
     ["New speed", `${Math.round(performance.new_state.ktas)} (${performance.new_speed_fp} FP)`, false],
   ];
 

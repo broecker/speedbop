@@ -138,7 +138,10 @@ class AircraftState:
         # 300/230->1.5 was actually 300/272->1.5) that had skewed the
         # original fit.
         mach = keas * math.exp(0.0044 * self.altitude) / 670.0
-        return round(mach, 1)
+        # Two decimals, not one: the ADC lift/drag tables have rows only
+        # 0.03-0.06 mach apart, so one-decimal rounding (0.78 -> 0.8) skips
+        # past the row the slide-rule reading actually selects.
+        return round(mach, 2)
 
     def get_engine_output(self, afterburner: bool = True) -> float:
         if afterburner and self.adc.ab_engine_output:
@@ -184,6 +187,14 @@ class AircraftState:
         stores_drag = 0.0
         return form_drag + brake_drag + stores_drag
 
+    def get_form_delta_ktas(self) -> float:
+        return self.get_total_drag() / self.get_smash() * 10
+
+    def get_engine_delta_ktas(self, engine_output: float) -> float:
+        # Engine output is the base delta knots at combat weight; a heavier
+        # aircraft gains proportionally less from the same thrust.
+        return engine_output * self.adc.stores.combat_weight / self.weight
+
     def get_sustained_load(self, afterburner: bool = True) -> float:
         """Max load (same units as get_max_load()) sustainable indefinitely
         at this exact state -- the load at which induced + form drag exactly
@@ -202,16 +213,19 @@ class AircraftState:
         achievable sustained G take min(get_sustained_load(), get_max_load())
         themselves.
         """
-        net_thrust = self.get_engine_output(afterburner) - self.get_total_drag()
-        if net_thrust <= 0:
-            return 0.0
         smash = self.get_smash()
         if smash == 0:
             # No meaningful lift at this speed (q/smash -> 0 as ktas -> 0) --
             # there's no load, however small, it can sustain.
             return 0.0
+        net_delta_ktas = (
+            self.get_engine_delta_ktas(self.get_engine_output(afterburner))
+            - self.get_form_delta_ktas()
+        )
+        if net_delta_ktas <= 0:
+            return 0.0
         k = 100 * self.get_lcs() / (smash * self.get_ids())
-        return math.sqrt(net_thrust / k)
+        return math.sqrt(net_delta_ktas / k)
 
 
 def speed_fp_from_ktas(ktas: float) -> int:
@@ -273,6 +287,7 @@ class TurnPerformance:
     induced_delta_ktas: float
     gravity_delta_ktas: float
     form_delta_ktas: float
+    engine_output: float
     engine_delta_ktas: float
     afterburner: bool
 
@@ -310,7 +325,7 @@ class TurnPerformance:
             f"Induced dKTAS: {round(self.induced_delta_ktas, 1)}",
             f"Grav    dKTAS: {round(self.gravity_delta_ktas, 1)}",
             f"Form    dKTAS: {round(self.form_delta_ktas, 1)}",
-            f"Engine  dKTAS: {round(self.engine_delta_ktas, 1)} (max {self.max_engine_output})",
+            f"Engine  dKTAS: {round(self.engine_delta_ktas, 1)} (output {self.engine_output}, max {self.max_engine_output})",
             f" => New speed: {round(self.new_state.ktas, 0)} ( {self.new_speed_fp} FP)",
             "-" * 79,
         ]
@@ -348,17 +363,18 @@ def calculate_performance(
     induced_delta_ktas = dl / speed * segment_fp
 
     gravity_delta_ktas = float(delta_altitude) / speed * 60 * -1
-    form_delta_ktas = state.get_total_drag() / state.get_smash() * 10
+    form_delta_ktas = state.get_form_delta_ktas()
 
     # A caller may set this explicitly (e.g. a throttle setting other than
     # max); either way it's capped by whichever chart the afterburner toggle
     # selects -- you can't request more thrust than that mode actually has.
     max_engine_output = state.get_engine_output(afterburner)
-    engine_delta_ktas = (
+    used_engine_output = (
         max_engine_output
         if engine_output is None
         else min(engine_output, max_engine_output)
     )
+    engine_delta_ktas = state.get_engine_delta_ktas(used_engine_output)
 
     new_ktas = (
         state.ktas
@@ -379,6 +395,7 @@ def calculate_performance(
         induced_delta_ktas=induced_delta_ktas,
         gravity_delta_ktas=gravity_delta_ktas,
         form_delta_ktas=form_delta_ktas,
+        engine_output=used_engine_output,
         engine_delta_ktas=engine_delta_ktas,
         afterburner=afterburner,
         old_state=state,
