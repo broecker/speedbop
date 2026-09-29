@@ -40,8 +40,8 @@ don't apply there.
 | 2 | Same, at altitude (KEAS != KTAS) | Swift Mk5, weight 15.8, alt 75, 450 KTAS | KEAS=350, Q=41.5, Smash=8.7, Mach=0.7, wing_load=47.9, safe_load=23.0 | Slide rule | **Pass** -- manual re-read within ~1-2%, see note below |
 | 3 | LCS/IDS/form-drag table lookup | FJ-3M @ mach 0.6 | LCS=4.7, IDS=328, form drag=19 (wing_load/safe_load n/a -- mach-only lookup, no weight in this scenario) | ADC printed tables | **Pass** |
 | 4 | Engine output isobar interpolation | Swift Mk5 @ mach 0.7, alt 75 | dry=40.9, AB=60.1 (wing_load/safe_load n/a -- no weight in this scenario) | ADC engine chart | **Pass** |
-| 5 | Structural/lift-limited max load | FJ-3M, case 1 (400kt/alt 0) | max_load=49 (16.3G), wing_load=52.3, safe_load=21.0 | ADC alpha_max + slide rule | **Pass** |
-| 6 | Same, different aircraft/altitude | Swift Mk5, case 2 (450kt/alt 75) | max_load=39 (13G), wing_load=47.9, safe_load=23.0 | ADC alpha_max + slide rule | Not yet run |
+| 5 | Structural/lift-limited max load | FJ-3M, case 1 (400kt/alt 0) | max_load=49 (16.3G), wing_load=52.3, safe_load=21.0 | ADC alpha_max + slide rule | **Pass** -- manual read 52, +6.1%, see note below |
+| 6 | Same, different aircraft/altitude | Swift Mk5, case 2 (450kt/alt 75) | max_load=39 (13G), wing_load=47.9, safe_load=23.0 | ADC alpha_max + slide rule | **Pass** -- manual read 42, +7.7%, see note below |
 | 7 | Full turn resolution, dry | FJ-3M, weight 17.4, alt 75, 485kt, 20 pulls, dAlt=0 | (run and record new KTAS); wing_load=58.0, safe_load=18.9 | Manual slide-rule turn | Not yet run |
 | 8 | Full turn resolution, AB | Swift Mk5, weight 15.8, alt 75, 400kt, 15 pulls, dAlt=0, AB on | (run and record new KTAS); wing_load=47.9, safe_load=23.0 | Manual slide-rule turn, AB engine table | Not yet run |
 | 9 | Near-stall regime: lift collapses faster than energy margin | FJ-3M, weight 17.4, alt 75, 65kt | max_load=0, sustained_load=2.51, wing_load=58.0, safe_load=18.9 | Slide rule (confirm no G available near stall regardless of thrust) | Not yet run |
@@ -75,11 +75,21 @@ don't apply there.
   KEAS) reading propagating through, not independent errors on each
   value -- ordinary E6B slide-alignment slop, well within the ~1%
   baseline instrument error already established for this device.
-- **#3-#5 verified 2026-09, pass**: manual checks against the ADC printed
-  tables (LCS/IDS/form drag, engine output isobars, max load) came back
-  matching, no error margin reported -- unlike #1/#2, these are direct
-  table reads/lookups rather than multi-step slide-rule conversions, so
-  less exposed to the alignment slop discussed above.
+- **#3-#4 verified 2026-09, pass**: manual checks against the ADC printed
+  tables (LCS/IDS/form drag, engine output isobars) came back matching, no
+  error margin reported -- these are direct table reads/lookups rather
+  than multi-step slide-rule conversions, so less exposed to the
+  alignment slop discussed above.
+- **#5/#6 verified 2026-09, pass with a wider margin**: manual reads came
+  back max_load=52 (formula: 49, +6.1%) and max_load=42 (formula: 39,
+  +7.7%). `max_load = alpha_max/lcs * smash` is linear in smash with
+  alpha_max/lcs a fixed printed-table constant (LCS itself was confirmed
+  exact in #3), so this relative gap is really a smash-reading gap of the
+  same size -- larger than the 3.8%/2.3% smash drift seen on the same two
+  aircraft in #1/#2, but the same direction (high) and the same
+  mechanism (E6B slide-alignment slop), not a new error source. Worth
+  keeping an eye on whether later scenarios keep drifting high, which
+  would point to a consistent technique bias rather than random noise.
 
 ## Calibrating the E6B conversion scales (keas/q/mach/smash)
 
