@@ -187,7 +187,7 @@ const PERFORMANCE_KTAS_MIN = 100;
 const PERFORMANCE_KTAS_MAX = 780;
 const PERFORMANCE_KTAS_STEP = 10;
 const PERFORMANCE_LOAD_MAX = 32;
-const PERFORMANCE_CELLS_MAX = 20;
+const PERFORMANCE_CELLS_MAX = 12;
 
 function performanceAircraftEntry() {
   const path = document.getElementById("performance-aircraft-select").value;
