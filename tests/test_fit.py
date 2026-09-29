@@ -2,7 +2,17 @@ import numpy as np
 import pytest
 
 from e6b import fit as fit_module
-from e6b.fit import fit_power_law, fit_shifted_power_window, load_samples, validate
+from e6b.fit import fit_power_law, fit_shifted_power_window, load_samples, parse_reading, validate
+
+
+def test_parse_reading_accepts_plain_numbers_and_ring_ratios():
+    assert parse_reading("0.5") == pytest.approx(0.5)
+    assert parse_reading("10/8.7") == pytest.approx(10 / 8.7)
+
+
+def test_parse_reading_rejects_expressions_instead_of_evaluating_them():
+    with pytest.raises(ValueError):
+        parse_reading("__import__('os').getcwd()")
 
 
 def test_recovers_exact_time_speed_distance_ratio():

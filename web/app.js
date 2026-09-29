@@ -835,6 +835,7 @@ function renderBreakdown(performance) {
     ["Gravity ΔKTAS", round1(performance.gravity_delta_ktas), false],
     ["Form ΔKTAS", round1(performance.form_delta_ktas), false],
     ["Engine output", `${round1(performance.engine_output)} (${performance.afterburner ? "AB" : "dry"})`, false],
+    ["Base Δknots", `${round1(performance.base_engine_delta_ktas)} (scale ${performance.engine_scale.toFixed(2)})`, false],
     ["Engine ΔKTAS", round1(performance.engine_delta_ktas), false],
     ["New speed", `${Math.round(performance.new_state.ktas)} (${performance.new_speed_fp} FP)`, false],
   ];

@@ -190,10 +190,14 @@ class AircraftState:
     def get_form_delta_ktas(self) -> float:
         return self.get_total_drag() * self.get_smash() / 10
 
+    def get_engine_scale(self) -> float:
+        return engine_scale(self.altitude, self.get_mach())
+
     def get_engine_delta_ktas(self, engine_output: float) -> float:
-        # Engine output is the base delta knots at combat weight; a heavier
-        # aircraft gains proportionally less from the same thrust.
-        return engine_output * self.adc.stores.combat_weight / self.weight
+        # The p-alt/mach engine scale turns engine output into base delta
+        # knots at combat weight; a heavier aircraft gains proportionally less.
+        base_delta_ktas = engine_output / self.get_engine_scale()
+        return base_delta_ktas * self.adc.stores.combat_weight / self.weight
 
     def get_sustained_load(self, afterburner: bool = True) -> float:
         """Max load (same units as get_max_load()) sustainable indefinitely
@@ -226,6 +230,27 @@ class AircraftState:
             return 0.0
         k = 100 * self.get_lcs() / (smash * self.get_ids())
         return math.sqrt(net_delta_ktas / k)
+
+
+FEET_PER_ALTITUDE_UNIT = 200.0
+
+
+def pressure_ratio(altitude: float) -> float:
+    """Standard-atmosphere static pressure ratio p/p0 (tropopause at 36,089 ft)."""
+    feet = altitude * FEET_PER_ALTITUDE_UNIT
+    if feet <= 36089.0:
+        return (1 - 6.87559e-6 * feet) ** 5.25588
+    return 0.22336 * math.exp(-4.80634e-5 * (feet - 36089.0))
+
+
+def engine_scale(altitude: float, mach: float) -> float:
+    """The E6B's p-alt/mach engine scale: base delta knots = engine output / scale.
+
+    Fit against e6b/mach_engine.csv, the scale is the inverse of the total
+    pressure ratio: static pressure at altitude times the isentropic ram
+    rise (1 + 0.2 M^2)^3.5, with one altitude unit = 200 ft.
+    """
+    return 1.0 / (pressure_ratio(altitude) * (1 + 0.2 * mach**2) ** 3.5)
 
 
 def speed_fp_from_ktas(ktas: float) -> int:
@@ -314,6 +339,14 @@ class TurnPerformance:
         # to mean here, not always the afterburner-on max regardless of mode.
         return self.old_state.get_engine_output(self.afterburner)
 
+    @property
+    def engine_scale(self) -> float:
+        return self.old_state.get_engine_scale()
+
+    @property
+    def base_engine_delta_ktas(self) -> float:
+        return self.engine_output / self.engine_scale
+
     def format(self) -> str:
         lines = [
             "-" * 79,
@@ -325,7 +358,7 @@ class TurnPerformance:
             f"Induced dKTAS: {round(self.induced_delta_ktas, 1)}",
             f"Grav    dKTAS: {round(self.gravity_delta_ktas, 1)}",
             f"Form    dKTAS: {round(self.form_delta_ktas, 1)}",
-            f"Engine  dKTAS: {round(self.engine_delta_ktas, 1)} (output {self.engine_output}, max {self.max_engine_output})",
+            f"Engine  dKTAS: {round(self.engine_delta_ktas, 1)} (output {self.engine_output}, max {self.max_engine_output}, base {round(self.base_engine_delta_ktas, 1)})",
             f" => New speed: {round(self.new_state.ktas, 0)} ( {self.new_speed_fp} FP)",
             "-" * 79,
         ]

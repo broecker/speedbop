@@ -315,10 +315,16 @@ def validate(
     return rows
 
 
+def parse_reading(value: str) -> float:
+    """A plain number, or a ratio read off the outer rings recorded as "a/b"."""
+    numerator, sep, denominator = value.partition("/")
+    return float(numerator) / float(denominator) if sep else float(value)
+
+
 def load_samples(path: str) -> list[dict[str, float]]:
     with open(path, newline="") as f:
         reader = csv.DictReader(f)
-        return [{k: float(eval(v)) for k, v in row.items()} for row in reader]
+        return [{k: parse_reading(v) for k, v in row.items()} for row in reader]
 
 
 def main() -> None:

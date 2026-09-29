@@ -17,6 +17,7 @@ from speedbop import (
     _bop_tablerow_lookup,
     _dataclass_from_dict,
     calculate_performance,
+    engine_scale,
     find_best_sustained_turn,
     find_structural_corner_speed,
     gs_from_pulls,
@@ -24,10 +25,12 @@ from speedbop import (
     ktas_from_keas,
     ktas_from_q,
     phad_cells_from_load,
+    pressure_ratio,
     q_from_smash,
     sustained_turn_profile,
 )
 from chart import Isobar, IsobarChart, load_isobars
+from e6b.fit import load_samples
 
 REPO_ROOT = pathlib.Path(__file__).parent.parent
 REAL_ADC_PATH = REPO_ROOT / "adc" / "fj-3m.json"
@@ -974,29 +977,83 @@ def test_calculate_performance_engine_output_can_be_overridden():
 
 
 def test_engine_delta_ktas_scales_by_combat_weight_over_current_weight():
-    # Engine output is the base delta knots at combat weight; an aircraft
-    # twice that heavy gains half as much from the same thrust.
-    state = _make_state(weight=10.0)  # fixture combat_weight=5.0
+    # Base delta knots are at combat weight; an aircraft twice that heavy
+    # gains half as much. Sea level at mach 0 keeps the engine scale at 1.
+    state = _make_state(weight=10.0, ktas=0.0, altitude=0)  # combat_weight=5.0
 
+    assert state.get_engine_scale() == pytest.approx(1.0)
     assert state.get_engine_delta_ktas(40.0) == pytest.approx(20.0)
 
 
-def test_engine_delta_ktas_is_unscaled_at_combat_weight():
-    state = _make_state(weight=5.0)  # fixture combat_weight=5.0
+def test_engine_delta_ktas_is_unscaled_at_combat_weight_sea_level_and_mach_0():
+    state = _make_state(weight=5.0, ktas=0.0, altitude=0)  # combat_weight=5.0
 
     assert state.get_engine_delta_ktas(40.0) == pytest.approx(40.0)
 
 
-def test_calculate_performance_applies_engine_weight_scaling():
+def test_engine_delta_ktas_divides_by_the_engine_scale():
+    state = _make_state(weight=5.0, ktas=400.0, altitude=100)  # combat_weight=5.0
+
+    assert state.get_engine_delta_ktas(40.0) == pytest.approx(
+        40.0 / engine_scale(state.altitude, state.get_mach())
+    )
+
+
+def test_calculate_performance_applies_engine_scale_and_weight_scaling():
     state = _make_state(ktas=100.0, altitude=0, weight=10.0)  # combat_weight=5.0
 
     performance = calculate_performance(
         state, segment_pulls=0, delta_altitude=0, engine_output=12.0
     )
 
+    expected = 12.0 / state.get_engine_scale() * 0.5
     assert performance.engine_output == pytest.approx(12.0)
-    assert performance.engine_delta_ktas == pytest.approx(6.0)
-    assert performance.new_state.ktas == pytest.approx(state.ktas + 6.0)
+    assert performance.engine_scale == pytest.approx(state.get_engine_scale())
+    assert performance.base_engine_delta_ktas == pytest.approx(12.0 / state.get_engine_scale())
+    assert performance.engine_delta_ktas == pytest.approx(expected)
+    assert performance.new_state.ktas == pytest.approx(state.ktas + expected)
+
+
+# ---------------------------------------------------------------------------
+# engine_scale / pressure_ratio (the E6B's p-alt/mach engine window)
+# ---------------------------------------------------------------------------
+
+ENGINE_SCALE_READINGS = REPO_ROOT / "e6b" / "mach_engine.csv"
+
+
+def test_engine_scale_is_one_at_sea_level_and_mach_0():
+    assert engine_scale(0, 0.0) == pytest.approx(1.0)
+
+
+def test_pressure_ratio_is_continuous_at_the_tropopause():
+    tropopause = 36089.0 / speedbop.FEET_PER_ALTITUDE_UNIT
+    assert pressure_ratio(tropopause - 1e-6) == pytest.approx(
+        pressure_ratio(tropopause + 1e-6), rel=1e-4
+    )
+
+
+def test_engine_scale_matches_the_e6b_readings():
+    # Readings taken off the physical window (altitude set over mach, ratio
+    # read on the outer rings). Two mach-1.0 readings sit 6-10% off an
+    # otherwise ~1% fit and look like reading slips -- see TEST_PLAN.md.
+    suspect = {(150.0, 1.0), (220.0, 1.0)}
+    readings = load_samples(str(ENGINE_SCALE_READINGS))
+    assert len(readings) == 36
+
+    for r in readings:
+        if (r["alt"], r["mach"]) in suspect:
+            continue
+        assert engine_scale(r["alt"], r["mach"]) == pytest.approx(r["engine_scale"], rel=0.03), r
+
+
+def test_engine_scale_reproduces_scenario_7():
+    # TEST_PLAN.md #7: manual pass read engine output 47 -> base 39 -> 36
+    # after weight scaling. speedbop reads 46.3 off the J65 chart.
+    adc = AircraftDataCard.from_json(REAL_ADC_PATH)
+    state = _make_state(adc=adc, weight=17.4, ktas=485.0, altitude=75)
+
+    assert 47 / state.get_engine_scale() == pytest.approx(39, rel=0.03)
+    assert state.get_engine_delta_ktas(state.get_engine_output(False)) == pytest.approx(35.2, abs=0.1)
 
 
 def test_calculate_performance_engine_output_defaults_to_chart_max_when_not_given():
@@ -1238,7 +1295,7 @@ def test_turn_performance_max_engine_output_is_read_off_the_old_state():
 
     assert performance.max_engine_output == pytest.approx(performance.old_state.get_engine_output())
     assert "Engine  dKTAS:" in performance.format()
-    assert f"max {performance.max_engine_output})" in performance.format()
+    assert f"max {performance.max_engine_output}," in performance.format()
 
 
 # ---------------------------------------------------------------------------
@@ -1372,9 +1429,9 @@ def test_main_runs_and_prints_expected_values(capsys, monkeypatch):
     assert "Pulls:         22" in out
     # Swift Mk5 has an afterburner, resolve_turn() defaults afterburner=True,
     # and main() doesn't override engine_output, so the turn uses the AB
-    # chart's max (57.1) -- scaled by combat weight / weight (15.8/17.4)
-    # into 51.8 dKTAS.
-    assert "Engine  dKTAS: 51.8 (output 57.1, max 57.1)" in out
+    # chart's max (57.1) -- divided by the engine scale into 56.2 base
+    # knots, then scaled by combat weight / weight (15.8/17.4) to 51.0.
+    assert "Engine  dKTAS: 51.0 (output 57.1, max 57.1, base 56.2)" in out
     # Form drag is no longer hardcoded to 0 -- Swift Mk5's form table
     # produces a nonzero value at this state's mach.
     assert "Form    dKTAS: 18.8" in out

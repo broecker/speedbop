@@ -126,7 +126,8 @@ To derive a real formula: take ~10 readings off the device for a given
 calculation, varying one input at a time across its full range, save them
 as a CSV (one column per variable, output column last), and run the command
 above pointing at your file. `e6b/samples/example_tsd.csv` shows the format
-using the classic time = distance / speed calculation.
+using the classic time = distance / speed calculation. A value read as a
+ratio between the outer rings can be recorded as-is, e.g. `10/8.7`.
 
 ### Ring-read vs. window-set inputs
 
@@ -247,6 +248,21 @@ The real atmosphere's barometric power law doesn't fit this data at all
 (errors exceed 100% at high altitude) -- like the KTAS/KEAS relationship,
 the game approximates it with a plain exponential decay instead of the
 true physics formula.
+
+### When both inputs are windows: the engine scale
+
+`e6b/mach_engine.csv` is the p-alt/mach engine scale: altitude and Mach are
+*both* set in a window, and the result is read as a ratio on the outer
+rings. Both windows are graduated nonlinearly, which none of `fit.py`'s
+model families cover (`--linear alt mach` only reaches R^2 = 0.973, and
+`--window` takes one input). Here the scale turned out to be real physics
+after all, the inverse of the total pressure ratio: standard-atmosphere
+static pressure (200 ft per altitude unit, tropopause included) times the
+isentropic ram rise `(1 + 0.2 M^2)^3.5`. That closed form lives in
+`speedbop.engine_scale()`, and `tests/test_speedbop.py` checks it against
+every reading. For a future scale like this, first test the separate
+effect of each window (log of the ratio at fixed values of the other
+input) against a known law before reaching for a lookup table.
 
 ## Reading 2D charts: chart.py
 
