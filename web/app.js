@@ -320,27 +320,25 @@ function renderSustainedTurnChart(container, points, best, structuralCorner, cur
 
   // Ends the line where it first reaches the top of the chart instead of
   // running it flat along the cap.
-  const pathUntilCap = (getLoad) => {
+  const pathUntilCap = (getValue, cap, yOf) => {
     const coords = [];
     for (let i = 0; i < points.length; i++) {
-      const load = getLoad(points[i]);
-      if (load < loadCap) {
-        coords.push(`${x(points[i].ktas).toFixed(1)},${y(load).toFixed(1)}`);
+      const value = getValue(points[i]);
+      if (value < cap) {
+        coords.push(`${x(points[i].ktas).toFixed(1)},${yOf(value).toFixed(1)}`);
         continue;
       }
       if (i > 0) {
         const prev = points[i - 1];
-        const prevLoad = getLoad(prev);
-        const crossKtas = prev.ktas + ((loadCap - prevLoad) / (load - prevLoad)) * (points[i].ktas - prev.ktas);
-        coords.push(`${x(crossKtas).toFixed(1)},${y(loadCap).toFixed(1)}`);
+        const prevValue = getValue(prev);
+        const crossKtas = prev.ktas + ((cap - prevValue) / (value - prevValue)) * (points[i].ktas - prev.ktas);
+        coords.push(`${x(crossKtas).toFixed(1)},${yOf(cap).toFixed(1)}`);
       }
       break;
     }
     return coords.join(" ");
   };
-  const cellsPath = points
-    .map((p) => `${x(p.ktas).toFixed(1)},${y2(p.max_pullable_cells).toFixed(1)}`)
-    .join(" ");
+  const cellsPath = pathUntilCap((p) => p.max_pullable_cells, cellsMax, y2);
 
   const axes = `
     <line class="axis-line" x1="${padLeft}" y1="${padTop}" x2="${padLeft}" y2="${padTop + plotH}"></line>
@@ -396,7 +394,9 @@ function renderSustainedTurnChart(container, points, best, structuralCorner, cur
       (currentState.maxLoad <= loadCap
         ? `<circle class="current-state-dot structural" cx="${cx.toFixed(1)}" cy="${y(currentState.maxLoad).toFixed(1)}" r="3"></circle>`
         : "") +
-      `<circle class="current-state-dot cells" cx="${cx.toFixed(1)}" cy="${y2(currentState.cells).toFixed(1)}" r="3"></circle>` +
+      (currentState.cells <= cellsMax
+        ? `<circle class="current-state-dot cells" cx="${cx.toFixed(1)}" cy="${y2(currentState.cells).toFixed(1)}" r="3"></circle>`
+        : "") +
       `<text class="current-state-label" x="${cx.toFixed(1)}" y="${(padTop - 2).toFixed(1)}" text-anchor="middle">` +
       `Now: ${Math.round(currentState.ktas)}kt</text>`;
   }
@@ -404,7 +404,7 @@ function renderSustainedTurnChart(container, points, best, structuralCorner, cur
   container.innerHTML =
     `<svg viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">` +
     axes +
-    `<polyline class="structural-line" points="${pathUntilCap((p) => p.max_load)}"></polyline>` +
+    `<polyline class="structural-line" points="${pathUntilCap((p) => p.max_load, loadCap, y)}"></polyline>` +
     `<polyline class="sustained-line" points="${pathFor((p) => p.sustained_load)}"></polyline>` +
     `<polyline class="cells-line" points="${cellsPath}"></polyline>` +
     currentStateMarker +
@@ -424,7 +424,7 @@ function renderSustainedTurnChart(container, points, best, structuralCorner, cur
     // in the DOM layer instead, sized to exactly cover the SVG below it.
     `<div class="hover-target"></div>`;
 
-  wireSustainedTurnChartInteractivity(container, points, { x, y, y2, width, padLeft, plotW, ktasMin, ktasMax, loadCap });
+  wireSustainedTurnChartInteractivity(container, points, { x, y, y2, width, padLeft, plotW, ktasMin, ktasMax, loadCap, cellsMax });
 }
 
 function wireSustainedTurnChartInteractivity(container, points, scale) {
@@ -463,6 +463,7 @@ function wireSustainedTurnChartInteractivity(container, points, scale) {
     structuralDot.classList.toggle("hidden", p.max_load > scale.loadCap);
     cellsDot.setAttribute("cx", px.toFixed(1));
     cellsDot.setAttribute("cy", scale.y2(p.max_pullable_cells).toFixed(1));
+    cellsDot.classList.toggle("hidden", p.max_pullable_cells > scale.cellsMax);
 
     tooltip.innerHTML =
       `<strong>${Math.round(p.ktas)} kt (${p.speed_fp} FP)</strong>` +
