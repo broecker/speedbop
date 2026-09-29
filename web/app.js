@@ -187,6 +187,7 @@ const PERFORMANCE_KTAS_MIN = 100;
 const PERFORMANCE_KTAS_MAX = 780;
 const PERFORMANCE_KTAS_STEP = 10;
 const PERFORMANCE_LOAD_MAX = 32;
+const PERFORMANCE_CELLS_MAX = 20;
 
 function performanceAircraftEntry() {
   const path = document.getElementById("performance-aircraft-select").value;
@@ -311,7 +312,7 @@ function renderSustainedTurnChart(container, points, best, structuralCorner, cur
   // loads (single digits vs. tens) -- sharing the loads axis would squash
   // this line flat against the bottom, so it gets its own right-side scale
   // instead, independent of loadCap.
-  const cellsMax = Math.max(1, Math.max(...points.map((p) => p.max_pullable_cells)) * 1.1);
+  const cellsMax = PERFORMANCE_CELLS_MAX;
   const y2 = (cells) => padTop + plotH - (Math.min(cells, cellsMax) / cellsMax) * plotH;
 
   const pathFor = (getLoad) =>
@@ -350,7 +351,7 @@ function renderSustainedTurnChart(container, points, best, structuralCorner, cur
     <text x="2" y="${padTop + plotH}">0</text>
     <text x="2" y="${padTop + 6}">${round1(loadCap)} loads (${round1(loadCap / 3)}G)</text>
     <text class="cells-axis-label" x="${(padLeft + plotW + 2).toFixed(1)}" y="${padTop + plotH}">0</text>
-    <text class="cells-axis-label" x="${(padLeft + plotW + 2).toFixed(1)}" y="${padTop + 6}">${Math.ceil(cellsMax)} cells</text>
+    <text class="cells-axis-label" x="${(padLeft + plotW + 2).toFixed(1)}" y="${padTop + 6}">${cellsMax} cells</text>
   `;
 
   // Only label the best point if it actually falls within the capped
