@@ -256,7 +256,7 @@ def engine_scale(altitude: float, mach: float) -> float:
 def speed_fp_from_ktas(ktas: float) -> int:
     if ktas < 60:
         return 1
-    return 2 + (ktas - 60) // 40
+    return 2 + int((ktas - 60) // 40)
 
 
 # Inverse helpers -- going from a derived value back to the inputs that
@@ -330,7 +330,7 @@ class TurnPerformance:
 
     @property
     def new_speed_fp(self) -> int:
-        return speed_fp_from_ktas(self.new_state.get_keas())
+        return speed_fp_from_ktas(self.new_state.ktas)
 
     @property
     def max_alpha(self) -> float:
@@ -384,7 +384,9 @@ def calculate_performance(
     segment_pulls = min(segment_pulls, state.get_max_load())
     delta_altitude = max(delta_altitude, -state.altitude)
 
-    speed = speed_fp_from_ktas(state.get_keas())
+    # FP always comes from KTAS; KEAS only feeds the intermediate
+    # performance values (q, smash, mach and the table lookups).
+    speed = speed_fp_from_ktas(state.ktas)
     if segment_fp:
         # A segment can't be longer than the FP your current speed actually
         # allows, and a segment of length <= 0 makes the load division below
@@ -482,12 +484,6 @@ def sustained_turn_profile(
     points = []
     for ktas in ktas_values:
         state = AircraftState(adc, weight, ktas, altitude)
-        # Raw KTAS, not get_keas() -- matches speed_fp_from_ktas()'s own
-        # name and how the turn screen's own stat bar and main() already
-        # read FP off a state elsewhere. (calculate_performance()'s
-        # internal "speed"/initial_speed_fp uses get_keas() instead --
-        # a pre-existing inconsistency, left alone here since fixing it
-        # would change core turn-resolution math, not just this chart.)
         speed_fp = speed_fp_from_ktas(ktas)
         sustained_load = math.floor(state.get_sustained_load(afterburner))
         max_load = state.get_max_load()

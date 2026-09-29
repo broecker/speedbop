@@ -1226,7 +1226,7 @@ def test_performance_history_resolve_turn_passes_through_afterburner():
 
 def test_calculate_performance_clamps_segment_fp_to_between_one_and_current_speed_fp():
     state = _make_state(ktas=485.0, altitude=75)
-    speed = speedbop.speed_fp_from_ktas(state.get_keas())
+    speed = speedbop.speed_fp_from_ktas(state.ktas)
 
     too_long = calculate_performance(state, segment_pulls=10, segment_fp=speed + 20)
     assert too_long.segment_fp == speed
@@ -1252,7 +1252,7 @@ def test_calculate_performance_clamped_altitude_also_affects_the_gravity_term():
     # not the originally requested delta_altitude -- you can't gain more
     # energy diving than you had altitude to dive through.
     state = _make_state(ktas=485.0, altitude=10)
-    speed = speedbop.speed_fp_from_ktas(state.get_keas())
+    speed = speedbop.speed_fp_from_ktas(state.ktas)
 
     performance = calculate_performance(state, segment_pulls=5, delta_altitude=-25)
 
@@ -1302,7 +1302,20 @@ def test_turn_performance_gs_and_new_speed_fp():
     performance = calculate_performance(state, segment_pulls=21, delta_altitude=0)
 
     assert performance.gs == pytest.approx(7.0)  # 21 pulls / 3
-    assert performance.new_speed_fp == speedbop.speed_fp_from_ktas(performance.new_state.get_keas())
+    assert performance.new_speed_fp == speedbop.speed_fp_from_ktas(performance.new_state.ktas)
+
+
+def test_turn_speed_fp_comes_from_ktas_not_keas():
+    # Regression test: the turn breakdown read FP off KEAS while the turn
+    # screen's stat bar reads it off KTAS, so at altitude they disagreed
+    # (383 KTAS at alt 30 is 346 KEAS: 9 FP vs 10 FP).
+    state = _make_state(ktas=383.0, altitude=30)
+    assert state.get_keas() == 346
+
+    performance = calculate_performance(state, segment_pulls=0, delta_altitude=0)
+
+    assert performance.initial_speed_fp == speedbop.speed_fp_from_ktas(383.0) == 10
+    assert performance.new_speed_fp == speedbop.speed_fp_from_ktas(performance.new_state.ktas)
 
 
 def test_turn_performance_is_frozen():
