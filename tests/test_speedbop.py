@@ -1296,6 +1296,15 @@ def test_calculate_performance_keeps_adc_and_weight_unchanged():
     assert performance.new_state.weight == state.weight
 
 
+def test_turn_performance_smash_is_the_one_alpha_was_computed_from():
+    state = _make_state(ktas=485.0, altitude=75)
+
+    performance = calculate_performance(state, segment_pulls=10, delta_altitude=0)
+
+    assert performance.smash == pytest.approx(state.get_smash())
+    assert performance.alpha == pytest.approx(10 / performance.smash * state.get_lcs())
+
+
 def test_turn_performance_gs_and_new_speed_fp():
     state = _make_state(ktas=485.0, altitude=75)
 

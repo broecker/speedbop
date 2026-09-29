@@ -345,6 +345,10 @@ class TurnPerformance:
         return self.old_state.get_engine_output(self.afterburner)
 
     @property
+    def smash(self) -> float:
+        return self.old_state.get_smash()
+
+    @property
     def engine_scale(self) -> float:
         return self.old_state.get_engine_scale()
 
