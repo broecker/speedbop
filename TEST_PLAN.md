@@ -42,14 +42,14 @@ don't apply there.
 | 4 | Engine output isobar interpolation | Swift Mk5 @ mach 0.7, alt 75 | dry=40.9, AB=60.1 (wing_load/safe_load n/a -- no weight in this scenario) | ADC engine chart | **Pass** |
 | 5 | Structural/lift-limited max load | FJ-3M, case 1 (400kt/alt 0) | max_load=49 (16.3G), wing_load=52.3, safe_load=21.0 | ADC alpha_max + slide rule | **Pass** -- manual read 52, +6.1%, see note below |
 | 6 | Same, different aircraft/altitude | Swift Mk5, case 2 (450kt/alt 75) | max_load=39 (13G), wing_load=47.9, safe_load=23.0 | ADC alpha_max + slide rule | **Pass** -- manual read 42, +7.7%, see note below |
-| 7 | Full turn resolution, dry | FJ-3M, weight 17.4, alt 75, 485kt, 20 pulls, dAlt=0 | KEAS=377, Q=48.2, Smash=8.3, Mach=0.78, max_load=44, LCS/IDS=4.2/270, alpha=10.12, induced dKTAS=75.0, form drag=24 (dKTAS 28.9), engine output=46.3 (dKTAS 41.8 after weight scaling), new KTAS=422.9; wing_load=58.0, safe_load=18.9 | Manual slide-rule turn | **Re-run pending** -- code fixed after first pass, see note below |
-| 8 | Full turn resolution, AB | Swift Mk5, weight 15.8, alt 75, 400kt, 15 pulls, dAlt=0, AB on | KEAS=311, Q=32.8, Smash=6.8, Mach=0.65, max_load=31, LCS/IDS=5.6/255, alpha=12.35, induced dKTAS=72.7, form drag=25 (dKTAS 36.8), engine output=61.2 (dKTAS 61.2, at combat weight), new KTAS=351.8; wing_load=47.9, safe_load=23.0 | Manual slide-rule turn, AB engine table | Not yet run |
-| 9 | Near-stall regime | FJ-3M, weight 17.4, alt 75, 65kt | max_load=0, sustained_load=0.0, wing_load=58.0, safe_load=18.9 | Slide rule (confirm no G available near stall regardless of thrust) | Not yet run |
-| 10 | Sustained load, low-speed side | FJ-3M dry, weight 17.4, alt 75, 250kt | sustained_load=0.0 (form dKTAS 86.4 > engine dKTAS 48.3), wing_load=58.0, safe_load=18.9 | Zero pulls for one turn, expect speed to drop | **Blocked** -- depends on form-drag rule, see note below |
-| 11 | Sustained load, at the peak | FJ-3M dry, weight 17.4, alt 75, 445kt | sustained_load=8.84 (curve's max), wing_load=58.0, safe_load=18.9 | Pull 9 loads, expect approximately 445kt after | **Blocked** -- depends on form-drag rule |
-| 12 | Sustained load, declining/transonic side | FJ-3M dry, weight 17.4, alt 75, 550kt | sustained_load=6.13 (below the peak), wing_load=58.0, safe_load=18.9 | Pull 6 loads, expect approximately 550kt after -- confirms the peak-and-decline is real, not a bug | **Blocked** -- depends on form-drag rule |
+| 7 | Full turn resolution, dry | FJ-3M, weight 17.4, alt 75, 485kt, 20 pulls, dAlt=0 | KEAS=377, Q=48.2, Smash=8.3, Mach=0.78, max_load=44, LCS/IDS=4.2/270, alpha=10.12, induced dKTAS=75.0, form drag=24 (dKTAS 19.9), engine output=46.3 (dKTAS 41.8 after weight scaling), new KTAS=431.9; wing_load=58.0, safe_load=18.9 | Manual slide-rule turn | **Re-run pending** -- code fixed after first pass, see note below |
+| 8 | Full turn resolution, AB | Swift Mk5, weight 15.8, alt 75, 400kt, 15 pulls, dAlt=0, AB on | KEAS=311, Q=32.8, Smash=6.8, Mach=0.65, max_load=31, LCS/IDS=5.6/255, alpha=12.35, induced dKTAS=72.7, form drag=25 (dKTAS 17.0), engine output=61.2 (dKTAS 61.2, at combat weight), new KTAS=371.5; wing_load=47.9, safe_load=23.0 | Manual slide-rule turn, AB engine table | Not yet run |
+| 9 | Near-stall regime: lift collapses faster than energy margin | FJ-3M dry, weight 17.4, alt 75, 65kt | max_load=0, sustained_load=2.81, wing_load=58.0, safe_load=18.9 | Slide rule (confirm no G available near stall regardless of thrust) | Not yet run |
+| 10 | Sustained load, rising side | FJ-3M dry, weight 17.4, alt 75, 250kt | sustained_load=8.23, wing_load=58.0, safe_load=18.9 | Pull 8 loads for one turn, expect approximately 250kt after (speedbop: 252.4) | Not yet run |
+| 11 | Sustained load, at the peak | FJ-3M dry, weight 17.4, alt 75, 445kt | sustained_load=12.07 (curve's max, at the mach-0.72 table breakpoint), wing_load=58.0, safe_load=18.9 | Pull 12 loads, expect approximately 445kt after (speedbop: 445.4) | Not yet run |
+| 12 | Sustained load, declining/transonic side | FJ-3M dry, weight 17.4, alt 75, 550kt | sustained_load=2.81 (well below the peak; 0 from ~600kt), wing_load=58.0, safe_load=18.9 | Pull 3 loads, expect approximately 550kt after (speedbop: 549.8) -- confirms the peak-and-decline is real, not a bug | Not yet run |
 | 13 | Literature corner speed | FJ-3M, weight 17.4, combat_safe_load=21 | `calculate_corner_speed()` at the 485kt state: 259 KEAS (approximately 333 KTAS @ alt 75); EM chart's Corner marker: 360 KTAS; wing_load=58.0, safe_load=18.9 | ADC's stated G rating + slide rule solve | Not yet run |
-| 14 | Sustained x lift-limited crossing ("Sustained" marker) | FJ-3M dry, weight 17.4, alt 75 | no crossing -- sustained never reaches max_load at this altitude; wing_load=58.0, safe_load=18.9 | Confirm sustained_load stays below max_load across the speed range | **Blocked** -- depends on form-drag rule |
+| 14 | Sustained x lift-limited crossing ("Sustained" marker) | FJ-3M dry, weight 17.4, alt 75 | crossover band approximately 203-215 KTAS at ~7 loads (sustained 6.97-7.18 while max_load holds at 7); the app's marker, sampled every 10kt, reads 212kt / 7.2 loads; wing_load=58.0, safe_load=18.9 | Confirm sustained_load approximately equals max_load independently at a speed in that band (e.g. 212kt) | Not yet run |
 
 ## Notes / flags
 
@@ -101,22 +101,30 @@ don't apply there.
      delta knots at combat weight and must be scaled by
      `combat_weight / weight` (15.7/17.4 here: 46.3 -> 41.8 dKTAS).
   3. *`get_sustained_load()` disagreed with `calculate_performance()`*:
-     it subtracted raw form drag (e.g. 19) where the turn formula
-     subtracts `drag/smash*10` (25.0), so a "sustained" turn actually
-     lost ~6 kt per turn. The unit-test fixture had zero form drag, which
-     hid it. Both now share one form-drag and one engine helper.
+     it subtracted raw form drag where the turn formula subtracted the
+     converted form dKTAS, so a "sustained" turn didn't actually hold
+     speed. The unit-test fixture had zero form drag, which hid it. Both
+     now share one form-drag and one engine helper.
 
   Safe load is confirmed to be weight-adjusted, which speedbop already
   does (21 at combat weight -> 18.9 at 17.4).
-- **Form drag conversion -- unconfirmed, blocks #10-#12 and #14**:
-  speedbop converts form drag to dKTAS as `drag/smash*10`, which grows as
-  speed drops. With fix 3 above, that now drives the EM chart too: FJ-3M
-  dry at alt 75 has zero sustained load below ~300kt (at 250kt form dKTAS
-  is 86 vs engine dKTAS 48), and its sustained curve never crosses the
-  lift-limited line. The #7 re-run's form dKTAS value will confirm or
-  refute the formula. One data point: the first pass's form value of 16
-  matches `drag*smash/10` (19 x 8.7 / 10 = 16.5), not `drag/smash*10`
-  (21.8).
+- **Form drag conversion confirmed 2026-09**: form dKTAS is
+  `drag * smash / 10`, confirmed by calculation against the player aids.
+  speedbop previously used `drag/smash*10`, which made form drag shrink
+  with speed instead of grow. That wrong formula was in the turn formula
+  from the start; fix 3 above briefly carried it into the EM chart too.
+  With the correct formula, FJ-3M dry at alt 75 has the expected EM
+  shape: sustained load rises to a 12.07-load peak at 445kt, falls
+  through the transonic region, and reaches zero at ~600kt. #10-#12 and
+  #14 were re-picked against this curve.
+- **#9** looks backwards at first glance (`max_load=0` while
+  `sustained_load=2.81`), but it's expected: near stall, available lift
+  collapses faster than the energy margin does, so structure (not thrust)
+  becomes the binding constraint.
+- **The sustained curve is bumpy** where mach crosses a lift/drag table
+  row (e.g. the peak sits exactly on the 0.72 row, and 450kt drops to
+  11.35 as the 0.78 row takes over). That's the step-wise tables, not
+  noise -- expect sustained load to jump at those breakpoints.
 
 ## Calibrating the E6B conversion scales (keas/q/mach/smash)
 

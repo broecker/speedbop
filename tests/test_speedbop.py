@@ -566,8 +566,8 @@ def test_get_sustained_load_returns_zero_at_zero_speed_instead_of_dividing_by_ze
 def test_get_sustained_load_matches_calculate_performance_with_form_drag_and_weight():
     # Regression test: the synthetic fixtures have zero form drag, which hid
     # get_sustained_load() subtracting raw drag where calculate_performance()
-    # subtracts drag/smash*10. The real FJ-3M off combat weight exercises
-    # both the form-drag conversion and the engine weight scaling.
+    # subtracts the converted form dKTAS. The real FJ-3M off combat weight
+    # exercises both the form-drag conversion and the engine weight scaling.
     adc = AircraftDataCard.from_json(REAL_ADC_PATH)
     state = _make_state(adc=adc, weight=17.4, ktas=465.0, altitude=75)
     assert state.get_total_drag() > 0
@@ -1021,12 +1021,25 @@ def test_calculate_performance_clamps_engine_output_to_chart_max():
     assert performance.engine_output == pytest.approx(max_output)
 
 
+def test_form_delta_ktas_is_drag_times_smash_over_ten():
+    # Confirmed against the player aids (TEST_PLAN.md #7): FJ-3M at 485
+    # KTAS/alt 75 reads the 0.79 drag row (24) at smash 8.3. Form drag grows
+    # with speed -- an earlier drag/smash*10 version shrank with it instead.
+    adc = AircraftDataCard.from_json(REAL_ADC_PATH)
+    state = _make_state(adc=adc, weight=17.4, ktas=485.0, altitude=75)
+
+    assert state.get_form_delta_ktas() == pytest.approx(24.0 * 8.3 / 10)
+
+    slower = _make_state(adc=adc, weight=17.4, ktas=300.0, altitude=75)
+    assert slower.get_form_delta_ktas() < state.get_form_delta_ktas()
+
+
 def test_calculate_performance_form_delta_ktas_uses_total_drag():
     state = _make_state(adc=_make_drag_adc(), ktas=337.3, altitude=0)
 
     performance = calculate_performance(state, segment_pulls=0, delta_altitude=0)
 
-    expected_form_delta_ktas = state.get_total_drag() / state.get_smash() * 10
+    expected_form_delta_ktas = state.get_total_drag() * state.get_smash() / 10
     assert performance.form_delta_ktas == pytest.approx(expected_form_delta_ktas)
     assert performance.form_delta_ktas > 0
     # And it actually participates in the resulting speed, not just the
@@ -1364,4 +1377,4 @@ def test_main_runs_and_prints_expected_values(capsys, monkeypatch):
     assert "Engine  dKTAS: 51.8 (output 57.1, max 57.1)" in out
     # Form drag is no longer hardcoded to 0 -- Swift Mk5's form table
     # produces a nonzero value at this state's mach.
-    assert "Form    dKTAS: 33.3" in out
+    assert "Form    dKTAS: 18.8" in out

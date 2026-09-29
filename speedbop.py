@@ -188,7 +188,7 @@ class AircraftState:
         return form_drag + brake_drag + stores_drag
 
     def get_form_delta_ktas(self) -> float:
-        return self.get_total_drag() / self.get_smash() * 10
+        return self.get_total_drag() * self.get_smash() / 10
 
     def get_engine_delta_ktas(self, engine_output: float) -> float:
         # Engine output is the base delta knots at combat weight; a heavier
