@@ -318,7 +318,7 @@ def validate(
 def load_samples(path: str) -> list[dict[str, float]]:
     with open(path, newline="") as f:
         reader = csv.DictReader(f)
-        return [{k: float(v) for k, v in row.items()} for row in reader]
+        return [{k: float(eval(v)) for k, v in row.items()} for row in reader]
 
 
 def main() -> None:
