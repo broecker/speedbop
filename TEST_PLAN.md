@@ -34,22 +34,22 @@ don't apply there.
 
 ## Test cases
 
-| # | What it verifies | Scenario | speedbop's current output | Check against |
-|---|---|---|---|---|
-| 1 | KEAS/Q/Smash/Mach at alt 0 (KEAS=KTAS) | FJ-3M, weight 15.7, alt 0, 400 KTAS | KEAS=400, Q=54.2, Smash=10.4, Mach=0.6, wing_load=52.3, safe_load=21.0 | Slide rule |
-| 2 | Same, at altitude (KEAS != KTAS) | Swift Mk5, weight 15.8, alt 75, 450 KTAS | KEAS=350, Q=41.5, Smash=8.7, Mach=0.7, wing_load=47.9, safe_load=23.0 | Slide rule |
-| 3 | LCS/IDS/form-drag table lookup | FJ-3M @ mach 0.6 | LCS=4.7, IDS=328, form drag=19 (wing_load/safe_load n/a -- mach-only lookup, no weight in this scenario) | ADC printed tables |
-| 4 | Engine output isobar interpolation | Swift Mk5 @ mach 0.7, alt 75 | dry=40.9, AB=60.1 (wing_load/safe_load n/a -- no weight in this scenario) | ADC engine chart |
-| 5 | Structural/lift-limited max load | FJ-3M, case 1 (400kt/alt 0) | max_load=49 (16.3G), wing_load=52.3, safe_load=21.0 | ADC alpha_max + slide rule |
-| 6 | Same, different aircraft/altitude | Swift Mk5, case 2 (450kt/alt 75) | max_load=39 (13G), wing_load=47.9, safe_load=23.0 | ADC alpha_max + slide rule |
-| 7 | Full turn resolution, dry | FJ-3M, weight 17.4, alt 75, 485kt, 20 pulls, dAlt=0 | (run and record new KTAS); wing_load=58.0, safe_load=18.9 | Manual slide-rule turn |
-| 8 | Full turn resolution, AB | Swift Mk5, weight 15.8, alt 75, 400kt, 15 pulls, dAlt=0, AB on | (run and record new KTAS); wing_load=47.9, safe_load=23.0 | Manual slide-rule turn, AB engine table |
-| 9 | Near-stall regime: lift collapses faster than energy margin | FJ-3M, weight 17.4, alt 75, 65kt | max_load=0, sustained_load=2.51, wing_load=58.0, safe_load=18.9 | Slide rule (confirm no G available near stall regardless of thrust) |
-| 10 | Sustained load, rising side | FJ-3M dry, weight 17.4, alt 75, 250kt | sustained_load=7.28, wing_load=58.0, safe_load=18.9 | Pull 7 loads for one turn, expect approximately 250kt after |
-| 11 | Sustained load, at the peak | FJ-3M dry, weight 17.4, alt 75, 465kt | sustained_load=12.47 (curve's max), wing_load=58.0, safe_load=18.9 | Pull 12 loads, expect approximately 465kt after |
-| 12 | Sustained load, declining/transonic side | FJ-3M dry, weight 17.4, alt 75, 550kt | sustained_load=6.86 (well below the peak), wing_load=58.0, safe_load=18.9 | Pull 7 loads, expect approximately 550kt after -- confirms the peak-and-decline is real, not a bug |
-| 13 | Literature corner speed | FJ-3M, weight 17.4, combat_safe_load=21 | 246 KEAS (approximately 316 KTAS @ alt 75), wing_load=58.0, safe_load=18.9 | ADC's stated G rating + slide rule solve |
-| 14 | Sustained x structural crossing ("Sustained" marker) | FJ-3M dry, weight 17.4, alt 75 | approximately 188 KTAS / 5.65 loads, wing_load=58.0, safe_load=18.9 | Confirm sustained_load approximately equals max_load independently at that speed |
+| # | What it verifies | Scenario | speedbop's current output | Check against | Verified? |
+|---|---|---|---|---|---|
+| 1 | KEAS/Q/Smash/Mach at alt 0 (KEAS=KTAS) | FJ-3M, weight 15.7, alt 0, 400 KTAS | KEAS=400, Q=54.2, Smash=10.4, Mach=0.6, wing_load=52.3, safe_load=21.0 | Slide rule | **Pass** -- manual re-read within ~4% (Q/Smash high), see note below |
+| 2 | Same, at altitude (KEAS != KTAS) | Swift Mk5, weight 15.8, alt 75, 450 KTAS | KEAS=350, Q=41.5, Smash=8.7, Mach=0.7, wing_load=47.9, safe_load=23.0 | Slide rule | **Pass** -- manual re-read within ~1-2%, see note below |
+| 3 | LCS/IDS/form-drag table lookup | FJ-3M @ mach 0.6 | LCS=4.7, IDS=328, form drag=19 (wing_load/safe_load n/a -- mach-only lookup, no weight in this scenario) | ADC printed tables | **Pass** |
+| 4 | Engine output isobar interpolation | Swift Mk5 @ mach 0.7, alt 75 | dry=40.9, AB=60.1 (wing_load/safe_load n/a -- no weight in this scenario) | ADC engine chart | **Pass** |
+| 5 | Structural/lift-limited max load | FJ-3M, case 1 (400kt/alt 0) | max_load=49 (16.3G), wing_load=52.3, safe_load=21.0 | ADC alpha_max + slide rule | **Pass** |
+| 6 | Same, different aircraft/altitude | Swift Mk5, case 2 (450kt/alt 75) | max_load=39 (13G), wing_load=47.9, safe_load=23.0 | ADC alpha_max + slide rule | Not yet run |
+| 7 | Full turn resolution, dry | FJ-3M, weight 17.4, alt 75, 485kt, 20 pulls, dAlt=0 | (run and record new KTAS); wing_load=58.0, safe_load=18.9 | Manual slide-rule turn | Not yet run |
+| 8 | Full turn resolution, AB | Swift Mk5, weight 15.8, alt 75, 400kt, 15 pulls, dAlt=0, AB on | (run and record new KTAS); wing_load=47.9, safe_load=23.0 | Manual slide-rule turn, AB engine table | Not yet run |
+| 9 | Near-stall regime: lift collapses faster than energy margin | FJ-3M, weight 17.4, alt 75, 65kt | max_load=0, sustained_load=2.51, wing_load=58.0, safe_load=18.9 | Slide rule (confirm no G available near stall regardless of thrust) | Not yet run |
+| 10 | Sustained load, rising side | FJ-3M dry, weight 17.4, alt 75, 250kt | sustained_load=7.28, wing_load=58.0, safe_load=18.9 | Pull 7 loads for one turn, expect approximately 250kt after | Not yet run |
+| 11 | Sustained load, at the peak | FJ-3M dry, weight 17.4, alt 75, 465kt | sustained_load=12.47 (curve's max), wing_load=58.0, safe_load=18.9 | Pull 12 loads, expect approximately 465kt after | Not yet run |
+| 12 | Sustained load, declining/transonic side | FJ-3M dry, weight 17.4, alt 75, 550kt | sustained_load=6.86 (well below the peak), wing_load=58.0, safe_load=18.9 | Pull 7 loads, expect approximately 550kt after -- confirms the peak-and-decline is real, not a bug | Not yet run |
+| 13 | Literature corner speed | FJ-3M, weight 17.4, combat_safe_load=21 | 246 KEAS (approximately 316 KTAS @ alt 75), wing_load=58.0, safe_load=18.9 | ADC's stated G rating + slide rule solve | Not yet run |
+| 14 | Sustained x structural crossing ("Sustained" marker) | FJ-3M dry, weight 17.4, alt 75 | approximately 188 KTAS / 5.65 loads, wing_load=58.0, safe_load=18.9 | Confirm sustained_load approximately equals max_load independently at that speed | Not yet run |
 
 ## Notes / flags
 
@@ -75,6 +75,11 @@ don't apply there.
   KEAS) reading propagating through, not independent errors on each
   value -- ordinary E6B slide-alignment slop, well within the ~1%
   baseline instrument error already established for this device.
+- **#3-#5 verified 2026-09, pass**: manual checks against the ADC printed
+  tables (LCS/IDS/form drag, engine output isobars, max load) came back
+  matching, no error margin reported -- unlike #1/#2, these are direct
+  table reads/lookups rather than multi-step slide-rule conversions, so
+  less exposed to the alignment slop discussed above.
 
 ## Calibrating the E6B conversion scales (keas/q/mach/smash)
 
