@@ -42,7 +42,7 @@ don't apply there.
 | 4 | Engine output isobar interpolation | Swift Mk5 @ mach 0.7, alt 75 | dry=40.9, AB=60.1 (wing_load/safe_load n/a -- no weight in this scenario) | ADC engine chart | **Pass** |
 | 5 | Structural/lift-limited max load | FJ-3M, case 1 (400kt/alt 0) | max_load=49 (16.3G), wing_load=52.3, safe_load=21.0 | ADC alpha_max + slide rule | **Pass** -- manual read 52, +6.1%, see note below |
 | 6 | Same, different aircraft/altitude | Swift Mk5, case 2 (450kt/alt 75) | max_load=39 (13G), wing_load=47.9, safe_load=23.0 | ADC alpha_max + slide rule | **Pass** -- manual read 42, +7.7%, see note below |
-| 7 | Full turn resolution, dry | FJ-3M, weight 17.4, alt 75, 485kt, 20 pulls, dAlt=0 | KEAS=377, Q=48.2, Smash=8.3, Mach=0.78, max_load=44, LCS/IDS=4.2/270, alpha=10.12, induced dKTAS=75.0, form drag=24 (dKTAS 19.9), engine output=46.3 (dKTAS 41.8 after weight scaling), new KTAS=431.9; wing_load=58.0, safe_load=18.9 | Manual slide-rule turn | **Re-run pending** -- code fixed after first pass, see note below |
+| 7 | Full turn resolution, dry | FJ-3M, weight 17.4, alt 75, 485kt, 20 pulls, dAlt=0 | KEAS=377, Q=48.2, Smash=8.3, Mach=0.78, max_load=44, LCS/IDS=4.2/270, alpha=10.12, induced dKTAS=75.0, form drag=24 (dKTAS 19.9), engine output=46.3 (dKTAS 41.8 after weight scaling), new KTAS=431.9; wing_load=58.0, safe_load=18.9 | Manual slide-rule turn | **Pass on end speed** (429 vs 431.9, -0.7%); engine term open -- see note below |
 | 8 | Full turn resolution, AB | Swift Mk5, weight 15.8, alt 75, 400kt, 15 pulls, dAlt=0, AB on | KEAS=311, Q=32.8, Smash=6.8, Mach=0.65, max_load=31, LCS/IDS=5.6/255, alpha=12.35, induced dKTAS=72.7, form drag=25 (dKTAS 17.0), engine output=61.2 (dKTAS 61.2, at combat weight), new KTAS=371.5; wing_load=47.9, safe_load=23.0 | Manual slide-rule turn, AB engine table | Not yet run |
 | 9 | Near-stall regime: lift collapses faster than energy margin | FJ-3M dry, weight 17.4, alt 75, 65kt | max_load=0, sustained_load=2.81, wing_load=58.0, safe_load=18.9 | Slide rule (confirm no G available near stall regardless of thrust) | Not yet run |
 | 10 | Sustained load, rising side | FJ-3M dry, weight 17.4, alt 75, 250kt | sustained_load=8.23, wing_load=58.0, safe_load=18.9 | Pull 8 loads for one turn, expect approximately 250kt after (speedbop: 252.4) | Not yet run |
@@ -108,6 +108,21 @@ don't apply there.
 
   Safe load is confirmed to be weight-adjusted, which speedbop already
   does (21 at combat weight -> 18.9 at 17.4).
+- **#7 re-run 2026-09, end speed passes, engine term open**: manual read
+  wing_load=58 (exact), smash=8.5 (+2.4%), max_load=46 (+4.5%),
+  alpha=9.8 (-3.2%), induced dKTAS=72 (-4.0%), form dKTAS=20 (+0.5%),
+  engine dKTAS=36 (speedbop 41.8, -14%), new KTAS=429 (speedbop 431.9,
+  -0.7%). Max load, alpha and induced all follow from the slightly high
+  smash reading (with smash 8.5 the formulas give 45.3 / 9.9 / 73.2), so
+  they're ordinary slide-rule drift. The engine term is not:
+  `combat_weight/weight` scaling (x0.902) turns speedbop's 46.3 into 41.8,
+  and the first pass's 47 into 42.4, while 36 would need an engine output
+  of ~40. Nothing near mach 0.78 / alt 75 on the J65 chart reads that low
+  (46-47 there), and both passes landed on 36, so this looks like a
+  consistent procedural difference rather than a misread. The end speeds
+  agree only because the lower engine term (-5.8 kt) is partly offset by
+  the lower induced drag (+3 kt). Open until the engine step is
+  reconciled.
 - **Form drag conversion confirmed 2026-09**: form dKTAS is
   `drag * smash / 10`, confirmed by calculation against the player aids.
   speedbop previously used `drag/smash*10`, which made form drag shrink
