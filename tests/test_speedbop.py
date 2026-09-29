@@ -1034,15 +1034,11 @@ def test_pressure_ratio_is_continuous_at_the_tropopause():
 
 def test_engine_scale_matches_the_e6b_readings():
     # Readings taken off the physical window (altitude set over mach, ratio
-    # read on the outer rings). Two mach-1.0 readings sit 6-10% off an
-    # otherwise ~1% fit and look like reading slips -- see TEST_PLAN.md.
-    suspect = {(150.0, 1.0), (220.0, 1.0)}
+    # read on the outer rings).
     readings = load_samples(str(ENGINE_SCALE_READINGS))
     assert len(readings) == 36
 
     for r in readings:
-        if (r["alt"], r["mach"]) in suspect:
-            continue
         assert engine_scale(r["alt"], r["mach"]) == pytest.approx(r["engine_scale"], rel=0.03), r
 
 

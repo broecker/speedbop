@@ -198,9 +198,9 @@ off the physical E6B (see `e6b/fit.py` and the data in `e6b/*.csv` and
   is the standard-atmosphere static pressure ratio (tropopause at 36,089
   ft) and `(1 + 0.2 M^2)^3.5` is the isentropic ram-pressure rise. With
   those round constants (1 at sea level/mach 0, 200 ft per altitude unit)
-  it fits the readings to 0.8% median, 2.5% worst, R^2 = 0.9999; freeing
-  the constants barely improves it. The mach window alone matches the
-  isentropic term to ~1% at every altitude.
-  - Two readings look like slips, both at the mach-1.0 tick:
-    `150,1.0,10/6.0` (formula 10/5.62) and `220,1.0,10/3.2` (formula
-    10/2.89), 6% and 10% off. Worth re-reading on the physical device.
+  it fits all 36 readings to 0.8% median, 2.5% worst, R^2 = 0.9999;
+  freeing the constants barely improves it. The mach window alone matches
+  the isentropic term to ~1% at every altitude.
+  - Two readings at the mach-1.0 tick were slips, flagged by the fit and
+    confirmed on the device: `150,1.0` was 10/6.0 (now 10/5.7, formula
+    10/5.62) and `220,1.0` was 10/3.2 (now 10/2.9, formula 10/2.89).
