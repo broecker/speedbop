@@ -27,6 +27,7 @@ from speedbop import (
     phad_cells_from_load,
     pressure_ratio,
     q_from_smash,
+    round_phad_cells,
     sustained_turn_profile,
 )
 from chart import Isobar, IsobarChart, load_isobars
@@ -638,7 +639,7 @@ def test_sustained_turn_profile_matches_calling_aircraft_state_directly():
     assert point.max_phad_cells == pytest.approx(
         phad_cells_from_load(state.get_max_load(), expected_speed_fp)
     )
-    assert point.max_pullable_cells == math.floor(
+    assert point.max_pullable_cells == round_phad_cells(
         max(
             phad_cells_from_load(state.get_sustained_load(), expected_speed_fp),
             phad_cells_from_load(state.get_max_load(), expected_speed_fp),
@@ -652,9 +653,9 @@ def test_sustained_turn_profile_max_pullable_cells_takes_the_higher_curve():
     # At low speed sustained_load (energy) tends to exceed max_load
     # (structural) -- the aircraft has more energy than it can structurally
     # use; at high speed it's the reverse. max_pullable_cells should track
-    # whichever PHAD-cell rate is actually higher at each point, floored to
-    # a whole cell count (you can't turn a fractional cell). Combat weight
-    # matches the flying weight so engine output isn't scaled down.
+    # whichever PHAD-cell rate is actually higher at each point, rounded to
+    # the nearest whole cell. Combat weight matches the flying weight so
+    # engine output isn't scaled down.
     adc = _make_ab_adc(stores=AircraftDataCard.Stores(combat_weight=17.4))
     (low_speed_point,) = sustained_turn_profile(adc, weight=17.4, altitude=0, ktas_values=[120.0])
     (high_speed_point,) = sustained_turn_profile(adc, weight=17.4, altitude=0, ktas_values=[300.0])
@@ -664,8 +665,30 @@ def test_sustained_turn_profile_max_pullable_cells_takes_the_higher_curve():
     assert low_speed_point.sustained_phad_cells > low_speed_point.max_phad_cells
     assert high_speed_point.sustained_phad_cells < high_speed_point.max_phad_cells
 
-    assert low_speed_point.max_pullable_cells == math.floor(low_speed_point.sustained_phad_cells)
-    assert high_speed_point.max_pullable_cells == math.floor(high_speed_point.max_phad_cells)
+    assert low_speed_point.max_pullable_cells == round_phad_cells(low_speed_point.sustained_phad_cells)
+    assert high_speed_point.max_pullable_cells == round_phad_cells(high_speed_point.max_phad_cells)
+
+
+def test_round_phad_cells_rounds_to_nearest_with_halves_up():
+    assert round_phad_cells(2.49) == 2
+    assert round_phad_cells(2.5) == 3
+    assert round_phad_cells(2.86) == 3
+    assert round_phad_cells(3.0) == 3
+
+
+def test_turn_rate_holds_across_the_j6c_fp_step():
+    # Regression test: J-6C dry at alt 75, weight 14 -- the speed FP steps
+    # from 6 to 7 at 260kt, where 10 lift-limited load is 2.86 cells. That
+    # used to be rounded down to 2, dropping the turn rate between 250 and
+    # 280kt (both 3 cells).
+    adc = AircraftDataCard.from_json(REPO_ROOT / "adc" / "j-6c.json")
+    points = sustained_turn_profile(
+        adc, weight=14, altitude=75, ktas_values=[250.0, 260.0, 270.0, 280.0], afterburner=False
+    )
+
+    assert [p.speed_fp for p in points] == [6, 7, 7, 7]
+    assert [p.max_load for p in points] == [9, 10, 10, 11]
+    assert [p.max_pullable_cells for p in points] == [3, 3, 3, 3]
 
 
 def test_sustained_turn_profile_speed_fp_uses_raw_ktas_not_keas():
@@ -712,7 +735,7 @@ def _sustained_point(ktas, sustained_load, max_load, speed_fp=12):
         sustained_load=sustained_load, max_load=max_load,
         sustained_phad_cells=sustained_phad_cells,
         max_phad_cells=max_phad_cells,
-        max_pullable_cells=math.floor(max(sustained_phad_cells, max_phad_cells)),
+        max_pullable_cells=round_phad_cells(max(sustained_phad_cells, max_phad_cells)),
         engine_output=0.0, total_drag=0.0,
     )
 

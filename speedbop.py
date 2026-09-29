@@ -294,6 +294,11 @@ def phad_cells_from_load(load: float, fp: int) -> float:
     return 2 * load / fp
 
 
+def round_phad_cells(cells: float) -> int:
+    """Whole PHAD cells, rounded to the nearest cell (halves round up)."""
+    return math.floor(cells + 0.5)
+
+
 @dataclass(frozen=True)
 class TurnPerformance:
     """The result of resolving one turn's movement via calculate_performance().
@@ -496,9 +501,8 @@ def sustained_turn_profile(
                 sustained_phad_cells=sustained_phad_cells,
                 max_phad_cells=max_phad_cells,
                 # Whichever of the two turn rates is actually achievable at
-                # this speed, as a whole cell count -- you can't turn a
-                # fractional PHAD cell.
-                max_pullable_cells=math.floor(max(sustained_phad_cells, max_phad_cells)),
+                # this speed, as a whole cell count.
+                max_pullable_cells=round_phad_cells(max(sustained_phad_cells, max_phad_cells)),
                 engine_output=state.get_engine_output(afterburner),
                 total_drag=state.get_total_drag(),
             )
