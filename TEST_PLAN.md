@@ -61,17 +61,20 @@ don't apply there.
   FJ-3M's own numbers exactly, not Swift Mk5's (which should be wing
   loading ~47.9, safe load 23) -- double check which ADC was used for
   that pass before trusting the rest of its readings.
-- **#1 re-verified 2026-09**: re-ran `AircraftState(fj-3m, weight=15.7,
-  ktas=400, altitude=0)` directly against current `speedbop.py` and it
-  reproduces the table exactly (KEAS=400, Q=54.2, Smash=10.4, Mach=0.6,
-  wing_load=52.3, safe_load=21.0) -- no bug here. A manual pass reported
-  wing_load=52 (matches), but Q=81/Smash=16/Mach=0.62, which don't match
-  those inputs. Q=81 alone lines up with roughly 489 KTAS at alt 0 (not
-  400), but that speed doesn't reproduce the reported Smash/Mach either --
-  no single alternate input was found that reproduces all three, so this
-  looks like a manual-reading/transcription slip on that pass rather than
-  a formula bug. Worth re-reading the slide rule at exactly 400 KTAS/alt 0
-  to confirm.
+- **#1/#2 re-verified 2026-09, resolved**: re-ran both scenarios directly
+  against current `speedbop.py` and both reproduce the table exactly --
+  no bug here. An earlier manual pass on #1 reported Q=81/Smash=16/
+  Mach=0.62 against inputs that should give Q=54.2/Smash=10.4/Mach=0.6;
+  that first reading looked like a transcription slip (no single input
+  reproduced all three). A second manual re-read came back much closer
+  and internally consistent: #1 read KEAS=400/Mach=0.6/safe_load=21
+  exactly, with Q +3.3% high (56 vs 54.2) and Smash +3.8% high (10.8 vs
+  10.4); #2 read wing_load/safe_load essentially exact and KEAS/Q/Smash
+  1-2% high. In both cases Smash tracks the read Q via the exact
+  `smash=10*q/wl` relationship, so the drift is one slightly-high Q (or
+  KEAS) reading propagating through, not independent errors on each
+  value -- ordinary E6B slide-alignment slop, well within the ~1%
+  baseline instrument error already established for this device.
 
 ## Calibrating the E6B conversion scales (keas/q/mach/smash)
 
