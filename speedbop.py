@@ -450,7 +450,9 @@ class SustainedTurnPoint:
     ktas: float
     mach: float
     speed_fp: int
-    sustained_load: float
+    # Both in whole loads, rounded down -- pulls are whole numbers, so these
+    # are what a player can actually pull.
+    sustained_load: int
     max_load: int
     sustained_phad_cells: float
     max_phad_cells: float
@@ -487,7 +489,7 @@ def sustained_turn_profile(
         # a pre-existing inconsistency, left alone here since fixing it
         # would change core turn-resolution math, not just this chart.)
         speed_fp = speed_fp_from_ktas(ktas)
-        sustained_load = state.get_sustained_load(afterburner)
+        sustained_load = math.floor(state.get_sustained_load(afterburner))
         max_load = state.get_max_load()
         sustained_phad_cells = phad_cells_from_load(sustained_load, speed_fp)
         max_phad_cells = phad_cells_from_load(max_load, speed_fp)
@@ -540,6 +542,11 @@ def find_best_sustained_turn(points: list[SustainedTurnPoint]) -> BestSustainedT
     start, where both curves are pinned at zero because the aircraft can't
     generate any lift at all yet, not because that's a meaningful sustained
     turn point.
+
+    Equal loads count as sustained still reaching max_load, not as a
+    crossing: with both curves in whole loads they often touch at low speed
+    and run level together, and the crossing that matters is where
+    sustained finally drops below max_load.
     """
     flying = [p for p in points if p.max_load > 0]
 
@@ -547,10 +554,6 @@ def find_best_sustained_turn(points: list[SustainedTurnPoint]) -> BestSustainedT
         prev_diff = prev.sustained_load - prev.max_load
         curr_diff = curr.sustained_load - curr.max_load
 
-        if prev_diff == 0:
-            return BestSustainedTurn(
-                ktas=prev.ktas, load=prev.sustained_load, phad_cells=prev.sustained_phad_cells
-            )
         if (prev_diff < 0) != (curr_diff < 0):
             t = prev_diff / (prev_diff - curr_diff)
             ktas = prev.ktas + t * (curr.ktas - prev.ktas)

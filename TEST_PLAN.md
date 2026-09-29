@@ -49,7 +49,7 @@ don't apply there.
 | 11 | Sustained load, at the peak | FJ-3M dry, weight 17.4, alt 75, 445kt | sustained_load=10.15 (curve's max is 10.17 at 448kt, on the mach-0.72 table breakpoint), wing_load=58.0, safe_load=18.9 | Pull 10 loads, expect approximately 445kt after (speedbop: 445.6) | Not yet run |
 | 12 | Sustained load, declining/transonic side | FJ-3M dry, weight 17.4, alt 75, 520kt | sustained_load=7.09 (below the peak; 0 from ~549kt), wing_load=58.0, safe_load=18.9 | Pull 7 loads, expect approximately 520kt after (speedbop: 520.2) -- confirms the peak-and-decline is real, not a bug | Not yet run |
 | 13 | Literature corner speed | FJ-3M, weight 17.4, combat_safe_load=21 | `calculate_corner_speed()` at the 485kt state: 259 KEAS (approximately 333 KTAS @ alt 75); EM chart's Corner marker: 360 KTAS; wing_load=58.0, safe_load=18.9 | ADC's stated G rating + slide rule solve | Not yet run |
-| 14 | Sustained x lift-limited crossing ("Sustained" marker) | FJ-3M dry, weight 17.4, alt 75 | approximately 172 KTAS / ~4.5 loads (below it sustained 4.43 exceeds max_load 4; at 172kt max_load steps to 5 over sustained 4.63); the app's marker, sampled every 10kt, reads 175kt / 4.5 loads; wing_load=58.0, safe_load=18.9 | Confirm sustained_load approximately equals max_load independently near that speed | Not yet run |
+| 14 | Sustained x lift-limited crossing ("Sustained" marker) | FJ-3M dry, weight 17.4, alt 75 | approximately 171 KTAS at 4 loads: in whole loads (as the chart shows both curves) sustained and max_load are both 4 up to 171kt, then max_load steps to 5 at 172kt while sustained stays at 4 (precise sustained: 4.43 -> 4.63); the app's marker, sampled every 10kt, reads 170kt / 4 loads; wing_load=58.0, safe_load=18.9 | Confirm 4 loads is sustainable (holds speed) and the airframe allows 4 but not 5 loads just below 172kt | Not yet run |
 
 ## Notes / flags
 
@@ -137,6 +137,10 @@ don't apply there.
   row (e.g. the peak sits exactly on the 0.72 row, and 450kt drops to
   9.48 as the 0.78 row takes over). That's the step-wise tables, not
   noise -- expect sustained load to jump at those breakpoints.
+- **The EM chart shows sustained load in whole loads, rounded down**,
+  like the lift-limited line, since pulls are whole numbers. The values
+  in this table (e.g. #10's 6.35) are the precise `get_sustained_load()`
+  figures; the chart and its tooltip show the whole-load value (6).
 
 ## Calibrating the E6B conversion scales (keas/q/mach/smash/engine)
 

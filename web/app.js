@@ -262,7 +262,7 @@ function updatePerformanceScreen() {
   const captionParts = [`${entry.name} @ ${altitude} alt, ${modeLabel} power`];
   captionParts.push(
     best
-      ? `sustained: ${Math.round(best.ktas)} kt / ${round1(best.load)} loads / ${round1(best.phadCells)} PHAD cells`
+      ? `sustained: ${Math.round(best.ktas)} kt / ${wholeLoads(best.load)} / ${round1(best.phadCells)} PHAD cells`
       : "no sustained-turn crossing in range"
   );
   if (structuralCorner) {
@@ -306,7 +306,9 @@ function updatePerformanceScreen() {
 // would chop that off.
 function trimToXAxisCutoff(points, loadCap) {
   const structuralCapPoint = points.find((p) => p.max_load >= loadCap);
-  const sustainedZeroPoint = points.find((p) => p.sustained_load === 0);
+  // After the last nonzero point, not the first zero -- in whole loads the
+  // sustained curve can also read 0 at the slow end, before it's even risen.
+  const sustainedZeroPoint = points[points.findLastIndex((p) => p.sustained_load > 0) + 1];
   if (!structuralCapPoint || !sustainedZeroPoint) return points; // one never happens in range -- show it all
 
   const cutoffKtas = Math.max(structuralCapPoint.ktas, sustainedZeroPoint.ktas) + 50;
@@ -389,7 +391,7 @@ function renderSustainedTurnChart(container, points, best, loadCap, structuralCo
     bestMarker =
       `<circle class="best-turn-point" cx="${bx.toFixed(1)}" cy="${by.toFixed(1)}" r="3.5"></circle>` +
       `<text class="best-turn-label" x="${bx.toFixed(1)}" y="${(by - 7).toFixed(1)}" text-anchor="middle">` +
-      `Sustained: ${Math.round(best.ktas)}kt / ${round1(best.load)} loads</text>`;
+      `Sustained: ${Math.round(best.ktas)}kt / ${wholeLoads(best.load)}</text>`;
   }
 
   // The classic aerodynamic corner speed -- purely structural, so it lands
@@ -491,8 +493,8 @@ function wireSustainedTurnChartInteractivity(container, points, scale) {
 
     tooltip.innerHTML =
       `<strong>${Math.round(p.ktas)} kt (${p.speed_fp} FP)</strong>` +
-      `<span class="tt-sustained">Sustained: ${round1(p.sustained_load)} loads</span><br>` +
-      `<span class="tt-structural">Lift-limited: ${p.max_load} loads</span><br>` +
+      `<span class="tt-sustained">Sustained: ${wholeLoads(p.sustained_load)}</span><br>` +
+      `<span class="tt-structural">Lift-limited: ${wholeLoads(p.max_load)}</span><br>` +
       `<span class="tt-cells">Turn rate: ${p.max_pullable_cells} PHAD cells</span>`;
     tooltip.classList.remove("hidden");
 
@@ -891,6 +893,11 @@ function addHistoryRow(turnNumber, performance) {
 
 function round1(x) {
   return Math.round(x * 10) / 10;
+}
+
+function wholeLoads(load) {
+  const n = Math.floor(load);
+  return `${n} ${n === 1 ? "load" : "loads"}`;
 }
 
 document.getElementById("resolve-turn-btn").addEventListener("click", guarded("Couldn't calculate turn performance", () => {

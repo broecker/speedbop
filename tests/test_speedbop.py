@@ -629,19 +629,21 @@ def test_sustained_turn_profile_matches_calling_aircraft_state_directly():
     (point,) = sustained_turn_profile(adc, weight=17.4, altitude=75, ktas_values=[337.3])
 
     expected_speed_fp = speedbop.speed_fp_from_ktas(state.ktas)
+    # Whole loads, rounded down, like get_max_load().
+    expected_sustained = math.floor(state.get_sustained_load())
     assert point.mach == pytest.approx(state.get_mach())
     assert point.speed_fp == expected_speed_fp
-    assert point.sustained_load == pytest.approx(state.get_sustained_load())
+    assert point.sustained_load == expected_sustained
     assert point.max_load == state.get_max_load()
     assert point.sustained_phad_cells == pytest.approx(
-        phad_cells_from_load(state.get_sustained_load(), expected_speed_fp)
+        phad_cells_from_load(expected_sustained, expected_speed_fp)
     )
     assert point.max_phad_cells == pytest.approx(
         phad_cells_from_load(state.get_max_load(), expected_speed_fp)
     )
     assert point.max_pullable_cells == round_phad_cells(
         max(
-            phad_cells_from_load(state.get_sustained_load(), expected_speed_fp),
+            phad_cells_from_load(expected_sustained, expected_speed_fp),
             phad_cells_from_load(state.get_max_load(), expected_speed_fp),
         )
     )
@@ -657,7 +659,7 @@ def test_sustained_turn_profile_max_pullable_cells_takes_the_higher_curve():
     # the nearest whole cell. Combat weight matches the flying weight so
     # engine output isn't scaled down.
     adc = _make_ab_adc(stores=AircraftDataCard.Stores(combat_weight=17.4))
-    (low_speed_point,) = sustained_turn_profile(adc, weight=17.4, altitude=0, ktas_values=[120.0])
+    (low_speed_point,) = sustained_turn_profile(adc, weight=17.4, altitude=0, ktas_values=[110.0])
     (high_speed_point,) = sustained_turn_profile(adc, weight=17.4, altitude=0, ktas_values=[300.0])
 
     # Confirms this test actually exercises both branches of the max(),
@@ -789,6 +791,35 @@ def test_find_best_sustained_turn_returns_the_first_crossing_found():
     best = find_best_sustained_turn(points)
 
     assert 100.0 < best.ktas < 200.0
+
+
+def test_find_best_sustained_turn_waits_for_sustained_to_drop_below_max():
+    # In whole loads the two curves often touch at low speed and run level
+    # together. Touching isn't the crossing -- the marker belongs where
+    # sustained finally drops below max_load, not at the first equal point.
+    points = [
+        _sustained_point(100.0, sustained_load=3, max_load=3),
+        _sustained_point(110.0, sustained_load=4, max_load=4),
+        _sustained_point(120.0, sustained_load=4, max_load=5),
+    ]
+
+    best = find_best_sustained_turn(points)
+
+    assert best.ktas == pytest.approx(110.0)
+    assert best.load == pytest.approx(4.0)
+
+
+def test_find_best_sustained_turn_on_the_real_fj3m_in_whole_loads():
+    adc = AircraftDataCard.from_json(REAL_ADC_PATH)
+    points = sustained_turn_profile(
+        adc, weight=17.4, altitude=75,
+        ktas_values=[float(k) for k in range(0, 801, 10)], afterburner=False,
+    )
+
+    best = find_best_sustained_turn(points)
+
+    assert best.ktas == pytest.approx(170.0)
+    assert best.load == pytest.approx(4.0)
 
 
 def test_find_best_sustained_turn_skips_the_zero_airspeed_dead_zone():
