@@ -1,15 +1,16 @@
 // Pyodide bootstrap + UI wiring for the speedbop turn calculator.
 //
-// speedbop.py and chart.py run completely unmodified inside Pyodide --
-// their only imports are stdlib (dataclasses, json, math, pathlib, csv), so
-// nothing needs to be transpiled or polyfilled. Both live flat at the repo
+// speedbop.py, performance.py and chart.py run completely unmodified inside
+// Pyodide -- their only imports are stdlib (dataclasses, json, math,
+// pathlib, csv) and each other, so nothing needs to be transpiled or
+// polyfilled. All three live flat at the repo
 // root (not inside the e6b/ formula-derivation toolkit, which needs
 // numpy/scipy and is never imported by speedbop.py), so no subdirectory is
 // needed for our own source -- only the aircraft data cards under adc/
 // need one. This file's only job is to get those files into Pyodide's
 // virtual filesystem, then wire the DOM to the resulting Python objects.
 
-const PY_SOURCE_FILES = ["speedbop.py", "chart.py"];
+const PY_SOURCE_FILES = ["speedbop.py", "performance.py", "chart.py"];
 
 // pyodide.FS.mkdirTree/writeFile resolve a RELATIVE path against the
 // filesystem root ("/"), not against FS.cwd() ("/home/pyodide") -- despite
@@ -22,6 +23,8 @@ const FS_ROOT = "/home/pyodide";
 
 let pyodide;
 let speedbop;
+// Not "performance": that would shadow the browser's window.performance.
+let performanceModule;
 let pathlib;
 let history; // PerformanceHistory PyProxy, set once setup completes
 let aircraftManifest = [];
@@ -125,6 +128,7 @@ async function boot() {
     await writeFile(path, await fetchText(path));
   }
   speedbop = pyodide.pyimport("speedbop");
+  performanceModule = pyodide.pyimport("performance");
   pathlib = pyodide.pyimport("pathlib");
 
   setStatus("Loading aircraft roster…");
@@ -229,12 +233,12 @@ function updatePerformanceScreen() {
     ktasValues.push(ktas);
   }
 
-  const profile = speedbop.sustained_turn_profile(adc, weight, altitude, ktasValues, afterburner);
+  const profile = performanceModule.sustained_turn_profile(adc, weight, altitude, ktasValues, afterburner);
   const points = profile.toJs({ dict_converter: Object.fromEntries });
   // Pass the original PyProxy list straight into another Python call rather
   // than the already-.toJs()'d copy -- Pyodide hands it back to Python as
   // the same underlying list, no reconversion needed.
-  const bestProxy = speedbop.find_best_sustained_turn(profile);
+  const bestProxy = performanceModule.find_best_sustained_turn(profile);
   const best = bestProxy
     ? { ktas: bestProxy.ktas, load: bestProxy.load, phadCells: bestProxy.phad_cells }
     : null;
@@ -242,7 +246,7 @@ function updatePerformanceScreen() {
   // reaches the airframe's structural G rating. Purely structural, unlike
   // "best" above: it doesn't touch thrust/drag, so it's usually well past
   // what the sustained curve can actually hold at that speed.
-  const cornerProxy = speedbop.find_structural_corner_speed(profile, characteristics.combat_safe_load);
+  const cornerProxy = performanceModule.find_structural_corner_speed(profile, characteristics.combat_safe_load);
   const structuralCorner = cornerProxy ? { ktas: cornerProxy.ktas, load: cornerProxy.load } : null;
 
   // This runs on every keystroke in the weight/altitude fields -- without
