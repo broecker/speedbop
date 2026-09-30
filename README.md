@@ -3,8 +3,13 @@ Automatic performance calculation for Birds of Prey
 
 **[▶ Launch the app](https://broecker.github.io/speedbop/)** -- runs entirely
 in your browser via [Pyodide](https://pyodide.org/), no install needed. See
-`index.html` / `web/app.js` for how it wires `speedbop.py` and `chart.py`
-into a mobile-first turn calculator.
+`index.html` / `web/app.js` for how it wires `speedbop.py`, `performance.py`
+and `chart.py` into a mobile-first turn calculator.
+
+`speedbop.py` holds the data classes (aircraft data cards, aircraft state,
+turn results) and the turn-resolution mechanics. `performance.py` holds the
+E6B engine/airspeed conversions and the sustained-turn (EM chart) analysis
+behind the Aircraft Performance screen.
 
 (GitHub's rendered README strips `<script>` tags, so `index.html` can't run
 inline on this page -- the link above points at the same file served
@@ -13,9 +18,9 @@ statically via GitHub Pages, where it does.)
 ## Running the site without GitHub Pages
 
 The whole app is static files -- `index.html`, `web/app.js`, `speedbop.py`,
-`chart.py`, and everything under `adc/` are fetched at runtime by the
-browser (Pyodide loads them into an in-memory filesystem, then imports
-`speedbop` as a real Python module). There's no build step, so any static
+`performance.py`, `chart.py`, and everything under `adc/` are fetched at
+runtime by the browser (Pyodide loads them into an in-memory filesystem,
+then imports `speedbop` and `performance` as real Python modules). There's no build step, so any static
 file server works. From the repo root:
 
 ```
@@ -259,7 +264,7 @@ model families cover (`--linear alt mach` only reaches R^2 = 0.973, and
 after all, the inverse of the total pressure ratio: standard-atmosphere
 static pressure (200 ft per altitude unit, tropopause included) times the
 isentropic ram rise `(1 + 0.2 M^2)^3.5`. That closed form lives in
-`speedbop.engine_scale()`, and `tests/test_speedbop.py` checks it against
+`performance.engine_scale()`, and `tests/test_performance.py` checks it against
 every reading. For a future scale like this, first test the separate
 effect of each window (log of the ratio at fixed values of the other
 input) against a known law before reaching for a lookup table.
