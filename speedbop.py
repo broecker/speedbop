@@ -119,7 +119,7 @@ class AircraftState:
         return round(safe_load, 1)
 
     def get_keas(self) -> float:
-        return round(self.ktas / math.exp(0.003358 * self.altitude))
+        return round(performance.keas_from_ktas(self.ktas, self.altitude))
 
     def get_q(self) -> float:
         keas = self.get_keas()
@@ -132,13 +132,7 @@ class AircraftState:
         return round(10.0 * self.get_q() / self.get_wing_load(), 1)
 
     def get_mach(self) -> float:
-        keas = self.get_keas()
-        # keas = 670.0 * mach * exp(-0.0044 * altitude); empirically
-        # determined, refit against e6b/mach.csv after correcting two
-        # transcription typos (104/200->0.6 was actually 168/200->0.6;
-        # 300/230->1.5 was actually 300/272->1.5) that had skewed the
-        # original fit.
-        mach = keas * math.exp(0.0044 * self.altitude) / 670.0
+        mach = performance.mach_from_keas(self.get_keas(), self.altitude)
         # Two decimals, not one: the ADC lift/drag tables have rows only
         # 0.03-0.06 mach apart, so one-decimal rounding (0.78 -> 0.8) skips
         # past the row the slide-rule reading actually selects.

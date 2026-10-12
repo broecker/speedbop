@@ -1,4 +1,5 @@
 import math
+import statistics
 
 import pytest
 
@@ -7,13 +8,17 @@ from e6b.fit import load_samples
 from factories import REAL_ADC_PATH, REPO_ROOT, make_ab_adc, make_adc, make_state
 from performance import (
     FEET_PER_ALTITUDE_UNIT,
+    TROPOPAUSE_FT,
     corner_speed,
+    density_ratio,
     engine_scale,
     find_best_sustained_turn,
     find_structural_corner_speed,
     keas_from_q,
     ktas_from_keas,
     ktas_from_q,
+    keas_from_ktas,
+    mach_from_keas,
     phad_cells_from_load,
     pressure_ratio,
     q_from_smash,
@@ -36,7 +41,7 @@ from speedbop import (
 # ---------------------------------------------------------------------------
 
 def test_sustained_load_is_positive_and_below_the_structural_max():
-    state = make_state(adc=make_ab_adc(), ktas=337.3, altitude=0)
+    state = make_state(adc=make_ab_adc(), ktas=325.0, altitude=0)
 
     sustained = sustained_load(state)
 
@@ -51,7 +56,7 @@ def test_sustained_load_zero_crossing_matches_calculate_performance():
     # segment_pulls is typed as int, but nothing here needs it to actually
     # be one -- the sustained load is generally fractional, and the whole
     # point is finding the exact zero crossing.
-    state = make_state(adc=make_ab_adc(), ktas=337.3, altitude=0)
+    state = make_state(adc=make_ab_adc(), ktas=325.0, altitude=0)
     sustained = sustained_load(state)
 
     performance = calculate_performance(state, segment_pulls=sustained, delta_altitude=0)
@@ -63,7 +68,7 @@ def test_sustained_load_returns_zero_when_drag_exceeds_available_thrust():
     # The aircraft is already decelerating in straight, level flight at
     # this speed/altitude -- there's no load, however small, it can sustain.
     huge_drag_form = AircraftDataCard.Form(brake=0, mach_to_drag_table={0.5: 999.0})
-    state = make_state(adc=make_adc(form=huge_drag_form), ktas=337.3, altitude=0)
+    state = make_state(adc=make_adc(form=huge_drag_form), ktas=325.0, altitude=0)
 
     assert sustained_load(state) == 0.0
 
@@ -100,7 +105,7 @@ def test_sustained_load_matches_calculate_performance_with_form_drag_and_weight(
 
 
 def test_sustained_load_afterburner_increases_it():
-    state = make_state(adc=make_ab_adc(), ktas=337.3, altitude=0)
+    state = make_state(adc=make_ab_adc(), ktas=325.0, altitude=0)
 
     dry = sustained_load(state, afterburner=False)
     ab = sustained_load(state, afterburner=True)
@@ -193,15 +198,15 @@ def test_round_phad_cells_rounds_to_nearest_with_halves_up():
 def test_turn_rate_holds_across_the_j6c_fp_step():
     # Regression test: J-6C dry at alt 75, weight 14 -- the speed FP steps
     # from 6 to 7 at 260kt, where 10 lift-limited load is 2.86 cells. That
-    # used to be rounded down to 2, dropping the turn rate between 250 and
-    # 280kt (both 3 cells).
+    # used to be rounded down to 2, dropping the turn rate below the 3 cells
+    # on either side of the step.
     adc = AircraftDataCard.from_json(REPO_ROOT / "adc" / "j-6c.json")
     points = sustained_turn_profile(
         adc, weight=14, altitude=75, ktas_values=[250.0, 260.0, 270.0, 280.0], afterburner=False
     )
 
     assert [p.speed_fp for p in points] == [6, 7, 7, 7]
-    assert [p.max_load for p in points] == [9, 10, 10, 11]
+    assert [p.max_load for p in points] == [9, 10, 11, 11]
     assert [p.max_pullable_cells for p in points] == [3, 3, 3, 3]
 
 
@@ -224,10 +229,10 @@ def test_sustained_turn_profile_afterburner_toggle_threads_through():
     adc = make_ab_adc()
 
     (dry_point,) = sustained_turn_profile(
-        adc, weight=17.4, altitude=0, ktas_values=[337.3], afterburner=False
+        adc, weight=17.4, altitude=0, ktas_values=[325.0], afterburner=False
     )
     (ab_point,) = sustained_turn_profile(
-        adc, weight=17.4, altitude=0, ktas_values=[337.3], afterburner=True
+        adc, weight=17.4, altitude=0, ktas_values=[325.0], afterburner=True
     )
 
     assert ab_point.sustained_load > dry_point.sustained_load
@@ -330,7 +335,7 @@ def test_find_best_sustained_turn_on_the_real_fj3m_in_whole_loads():
 
     best = find_best_sustained_turn(points)
 
-    assert best.ktas == pytest.approx(170.0)
+    assert best.ktas == pytest.approx(160.0)
     assert best.load == pytest.approx(4.0)
 
 
@@ -463,12 +468,57 @@ def test_engine_scale_matches_the_e6b_readings():
 
 def test_engine_scale_reproduces_scenario_7():
     # TEST_PLAN.md #7: manual pass read engine output 47 -> base 39 -> 36
-    # after weight scaling. speedbop reads 46.3 off the J65 chart.
+    # after weight scaling. speedbop reads 46.1 off the J65 chart.
     adc = AircraftDataCard.from_json(REAL_ADC_PATH)
     state = make_state(adc=adc, weight=17.4, ktas=485.0, altitude=75)
 
     assert 47 / state.get_engine_scale() == pytest.approx(39, rel=0.03)
-    assert state.get_engine_delta_ktas(state.get_engine_output(False)) == pytest.approx(35.2, abs=0.1)
+    assert state.get_engine_delta_ktas(state.get_engine_output(False)) == pytest.approx(35.4, abs=0.1)
+
+
+# ---------------------------------------------------------------------------
+# Standard atmosphere: keas_from_ktas / mach_from_keas vs the E6B readings
+# ---------------------------------------------------------------------------
+
+KEAS_READINGS = REPO_ROOT / "e6b" / "samples" / "keas.csv"
+MACH_READINGS = REPO_ROOT / "e6b" / "mach.csv"
+
+
+def test_density_ratio_is_continuous_at_the_tropopause():
+    tropopause = TROPOPAUSE_FT / FEET_PER_ALTITUDE_UNIT
+    assert density_ratio(tropopause - 1e-6) == pytest.approx(
+        density_ratio(tropopause + 1e-6), rel=1e-4
+    )
+
+
+def test_keas_from_ktas_matches_the_e6b_readings():
+    # alt 175 / 500 KTAS reads 222 KEAS where both neighbors and the formula
+    # give ~278 -- a suspected transcription slip, see TEST_PLAN.md.
+    suspect = {(175.0, 500.0)}
+    readings = [
+        r for r in load_samples(str(KEAS_READINGS)) if (r["altitude"], r["ktas"]) not in suspect
+    ]
+
+    errors = []
+    for r in readings:
+        predicted = keas_from_ktas(r["ktas"], r["altitude"])
+        assert predicted == pytest.approx(r["keas"], rel=0.04), r
+        errors.append(abs(predicted / r["keas"] - 1))
+    assert statistics.median(errors) < 0.005
+
+
+def test_mach_from_keas_matches_the_e6b_readings():
+    # Two readings sit 7-9% off an otherwise ~1% fit and look like reading
+    # slips -- see TEST_PLAN.md.
+    suspect = {(20.0, 500.0), (200.0, 420.0)}
+    readings = [r for r in load_samples(str(MACH_READINGS)) if (r["alt"], r["keas"]) not in suspect]
+
+    errors = []
+    for r in readings:
+        predicted = mach_from_keas(r["keas"], r["alt"])
+        assert predicted == pytest.approx(r["mach"], rel=0.05), r
+        errors.append(abs(predicted / r["mach"] - 1))
+    assert statistics.median(errors) < 0.0125
 
 
 # ---------------------------------------------------------------------------
@@ -491,11 +541,10 @@ def test_ktas_from_keas_is_identity_at_sea_level():
     assert ktas_from_keas(keas=123.0, altitude=0) == pytest.approx(123.0)
 
 
-def test_ktas_from_keas_inverts_get_keas_formula():
-    # get_keas(): keas = round(ktas / exp(0.003358*altitude))
-    assert ktas_from_keas(keas=200.0, altitude=75) == pytest.approx(
-        200.0 * math.exp(0.003358 * 75)
-    )
+def test_ktas_from_keas_inverts_keas_from_ktas():
+    # Alt 75 is 15,000 ft: sqrt(density ratio) = 0.79322.
+    assert ktas_from_keas(keas=200.0, altitude=75) == pytest.approx(200.0 / 0.79322, rel=1e-4)
+    assert keas_from_ktas(ktas_from_keas(200.0, 75), 75) == pytest.approx(200.0)
 
 
 def test_ktas_from_q_chains_keas_from_q_and_ktas_from_keas():
@@ -527,9 +576,9 @@ def test_inverse_helpers_round_trip_the_real_fixture_within_rounding_error():
 # ---------------------------------------------------------------------------
 
 def test_corner_speed_on_the_real_fixture():
-    # 22.4/4.2 alpha-over-LCS at the 485kt state's mach 0.78 row, 21 combat
-    # safe load, 58.0 wing loading -> 259 KEAS.
+    # 22.4/3.8 alpha-over-LCS (the 485kt state's mach 0.79 reads the 0.84
+    # lift row), 21 combat safe load, 58.0 wing loading -> 246 KEAS.
     adc = AircraftDataCard.from_json(REAL_ADC_PATH)
     state = make_state(adc=adc, weight=17.4, ktas=485.0, altitude=75)
 
-    assert corner_speed(state) == 259
+    assert corner_speed(state) == 246

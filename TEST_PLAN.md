@@ -36,20 +36,20 @@ don't apply there.
 
 | # | What it verifies | Scenario | speedbop's current output | Check against | Verified? |
 |---|---|---|---|---|---|
-| 1 | KEAS/Q/Smash/Mach at alt 0 (KEAS=KTAS) | FJ-3M, weight 15.7, alt 0, 400 KTAS | KEAS=400, Q=54.2, Smash=10.4, Mach=0.6, wing_load=52.3, safe_load=21.0 | Slide rule | **Pass** -- manual re-read within ~4% (Q/Smash high), see note below |
-| 2 | Same, at altitude (KEAS != KTAS) | Swift Mk5, weight 15.8, alt 75, 450 KTAS | KEAS=350, Q=41.5, Smash=8.7, Mach=0.73, wing_load=47.9, safe_load=23.0 | Slide rule | **Pass** -- manual re-read within ~1-2%, see note below |
+| 1 | KEAS/Q/Smash/Mach at alt 0 (KEAS=KTAS) | FJ-3M, weight 15.7, alt 0, 400 KTAS | KEAS=400, Q=54.2, Smash=10.4, Mach=0.62 (0.615 unrounded), wing_load=52.3, safe_load=21.0 | Slide rule | **Pass** -- manual re-read within ~4% (Q/Smash high), see notes below |
+| 2 | Same, at altitude (KEAS != KTAS) | Swift Mk5, weight 15.8, alt 75, 450 KTAS | KEAS=357, Q=43.2, Smash=9.0, Mach=0.73, wing_load=47.9, safe_load=23.0 | Slide rule | **Pass** -- manual re-read within ~1-3%, see notes below |
 | 3 | LCS/IDS/form-drag table lookup | FJ-3M @ mach 0.6 | LCS=4.7, IDS=328, form drag=19 (wing_load/safe_load n/a -- mach-only lookup, no weight in this scenario) | ADC printed tables | **Pass** |
 | 4 | Engine output isobar interpolation | Swift Mk5 @ mach 0.7, alt 75 | dry=40.9, AB=60.1 (wing_load/safe_load n/a -- no weight in this scenario) | ADC engine chart | **Pass** |
-| 5 | Structural/lift-limited max load | FJ-3M, case 1 (400kt/alt 0) | max_load=49 (16.3G), wing_load=52.3, safe_load=21.0 | ADC alpha_max + slide rule | **Pass** -- manual read 52, +6.1%, see note below |
-| 6 | Same, different aircraft/altitude | Swift Mk5, case 2 (450kt/alt 75) | max_load=39 (13G), wing_load=47.9, safe_load=23.0 | ADC alpha_max + slide rule | **Pass** -- manual read 42, +7.7%, see note below |
-| 7 | Full turn resolution, dry | FJ-3M, weight 17.4, alt 75, 485kt, 20 pulls, dAlt=0 | KEAS=377, Q=48.2, Smash=8.3, Mach=0.78, max_load=44, LCS/IDS=4.2/270, alpha=10.12, induced dKTAS=75.0, form drag=24 (dKTAS 19.9), engine output=46.3 / engine scale 1.186 = base 39.1 (dKTAS 35.2 after weight scaling), new KTAS=425.4; wing_load=58.0, safe_load=18.9 | Manual slide-rule turn | **Pass** -- end speed 429 vs 425.4 (+0.8%), engine dKTAS 36 vs 35.2; see note below |
-| 8 | Full turn resolution, AB | Swift Mk5, weight 15.8, alt 75, 400kt, 15 pulls, dAlt=0, AB on | KEAS=311, Q=32.8, Smash=6.8, Mach=0.65, max_load=31, LCS/IDS=5.6/255, alpha=12.35, induced dKTAS=72.7, form drag=25 (dKTAS 17.0), engine output=61.2 / engine scale 1.334 = base 45.9 (dKTAS 45.9, at combat weight), new KTAS=356.2; wing_load=47.9, safe_load=23.0 | Manual slide-rule turn, AB engine table | **Pass** -- end speed 359 vs 356.2 (+0.8%); see note below |
+| 5 | Structural/lift-limited max load | FJ-3M, case 1 (400kt/alt 0) | max_load=49 (16.3G), wing_load=52.3, safe_load=21.0 | ADC alpha_max + slide rule | **Pass** -- manual read 52, +6.1%, see notes below |
+| 6 | Same, different aircraft/altitude | Swift Mk5, case 2 (450kt/alt 75) | max_load=41 (13.7G), wing_load=47.9, safe_load=23.0 | ADC alpha_max + slide rule | **Pass** -- manual read 42, +2.4%, see notes below |
+| 7 | Full turn resolution, dry | FJ-3M, weight 17.4, alt 75, 485kt, 20 pulls, dAlt=0 | KEAS=385, Q=50.2, Smash=8.7, Mach=0.79 (0.788 unrounded), max_load=51, LCS/IDS=3.8/232 (0.84 row), alpha=8.74, induced dKTAS=75.3, form drag=24 (dKTAS 20.9), engine output=46.1 / engine scale 1.174 = base 39.3 (dKTAS 35.4 after weight scaling), new KTAS=424.2; wing_load=58.0, safe_load=18.9 | Manual slide-rule turn | **Pass on end speed** (429 vs 424.2, +1.1%), but sits on a lift-row boundary -- see notes below |
+| 8 | Full turn resolution, AB | Swift Mk5, weight 15.8, alt 75, 400kt, 15 pulls, dAlt=0, AB on | KEAS=317, Q=34.1, Smash=7.1, Mach=0.65 (0.649 unrounded), max_load=32, LCS/IDS=5.6/255, alpha=11.83, induced dKTAS=69.6, form drag=25 (dKTAS 17.8), engine output=61.2 / engine scale 1.334 = base 45.9 (dKTAS 45.9, at combat weight), new KTAS=358.5; wing_load=47.9, safe_load=23.0 | Manual slide-rule turn, AB engine table | **Pass** -- end speed 359 vs 358.5 (+0.1%); see notes below |
 | 9 | Near-stall regime: lift collapses faster than energy margin | FJ-3M dry, weight 17.4, alt 75, 65kt | max_load=0, sustained_load=2.11, wing_load=58.0, safe_load=18.9 | Slide rule (confirm no G available near stall regardless of thrust) | **Pass** -- no whole load available (manual 0.25, speedbop 0); readings at the scale minimum, see note below |
-| 10 | Sustained load, rising side | FJ-3M dry, weight 17.4, alt 75, 250kt | sustained_load=6.35, wing_load=58.0, safe_load=18.9 | Pull 6 loads for one turn, expect approximately 250kt after (speedbop: 252.8) | **Pass** -- end speed 252 vs 252.8 (-0.3%); two slips, see note below |
-| 11 | Sustained load, at the peak | FJ-3M dry, weight 17.4, alt 75, 445kt | sustained_load=10.15 (curve's max is 10.17 at 448kt, on the mach-0.72 table breakpoint), wing_load=58.0, safe_load=18.9 | Pull 10 loads, expect approximately 445kt after (speedbop: 445.6) | Not yet run |
-| 12 | Sustained load, declining/transonic side | FJ-3M dry, weight 17.4, alt 75, 520kt | sustained_load=7.09 (below the peak; 0 from ~549kt), wing_load=58.0, safe_load=18.9 | Pull 7 loads, expect approximately 520kt after (speedbop: 520.2) -- confirms the peak-and-decline is real, not a bug | Not yet run |
-| 13 | Literature corner speed | FJ-3M, weight 17.4, combat_safe_load=21 | `corner_speed()` at the 485kt state: 259 KEAS (approximately 333 KTAS @ alt 75); EM chart's Corner marker: 360 KTAS; wing_load=58.0, safe_load=18.9 | ADC's stated G rating + slide rule solve | Not yet run |
-| 14 | Sustained x lift-limited crossing ("Sustained" marker) | FJ-3M dry, weight 17.4, alt 75 | approximately 171 KTAS at 4 loads: in whole loads (as the chart shows both curves) sustained and max_load are both 4 up to 171kt, then max_load steps to 5 at 172kt while sustained stays at 4 (precise sustained: 4.43 -> 4.63); the app's marker, sampled every 10kt, reads 170kt / 4 loads; wing_load=58.0, safe_load=18.9 | Confirm 4 loads is sustainable (holds speed) and the airframe allows 4 but not 5 loads just below 172kt | Not yet run |
+| 10 | Sustained load, rising side | FJ-3M dry, weight 17.4, alt 75, 250kt | sustained_load=6.48, wing_load=58.0, safe_load=18.9 | Pull 6 loads for one turn, expect approximately 250kt after (speedbop: 253.7) | **Pass** -- end speed 252 vs 253.7 (-0.7%); two slips, see notes below |
+| 11 | Sustained load, at the peak | FJ-3M dry, weight 17.4, alt 75, 445kt | sustained_load=10.22 (curve's max, on the mach-0.72 table breakpoint), wing_load=58.0, safe_load=18.9 | Pull 10 loads, expect approximately 445kt after (speedbop: 445.9) | Not yet run |
+| 12 | Sustained load, declining/transonic side | FJ-3M dry, weight 17.4, alt 75, 520kt | sustained_load=6.73 (below the peak; 0 from ~546kt), wing_load=58.0, safe_load=18.9 | Pull 7 loads, expect approximately 520kt after (speedbop: 519.4) -- confirms the peak-and-decline is real, not a bug | Not yet run |
+| 13 | Literature corner speed | FJ-3M, weight 17.4, combat_safe_load=21 | `corner_speed()` at the 485kt state: 246 KEAS (approximately 310 KTAS @ alt 75); EM chart's Corner marker: 350 KTAS; wing_load=58.0, safe_load=18.9 | ADC's stated G rating + slide rule solve | Not yet run |
+| 14 | Sustained x lift-limited crossing ("Sustained" marker) | FJ-3M dry, weight 17.4, alt 75 | approximately 168 KTAS at 4 loads: in whole loads (as the chart shows both curves) sustained and max_load are both 4 from 152 to 168kt, then max_load steps to 5 at 169kt while sustained stays at 4 (precise sustained: 4.63); the app's marker, sampled every 10kt, reads 160kt / 4 loads; wing_load=58.0, safe_load=18.9 | Confirm 4 loads is sustainable (holds speed) and the airframe allows 4 but not 5 loads just below 169kt | Not yet run |
 
 ## Notes / flags
 
@@ -125,10 +125,10 @@ don't apply there.
   with speed instead of grow. That wrong formula was in the turn formula
   from the start; fix 3 above briefly carried it into the EM chart too.
   With the correct formula, FJ-3M dry at alt 75 has the expected EM
-  shape. With the engine scale also applied, sustained load rises to a
-  10.17-load peak at 448kt, falls through the transonic region, and
-  reaches zero at ~549kt. #10-#12 and #14 were re-picked against this
-  curve.
+  shape. With the engine scale and the standard atmosphere also applied,
+  sustained load rises to a 10.22-load peak at 445kt, falls through the
+  transonic region, and reaches zero at ~546kt. #10-#12 and #14 were
+  picked against this curve.
 - **#8 verified 2026-09, pass**: manual read KEAS=316 (+1.6%), Mach=0.64
   (0.646 unrounded), wing_load=48 / safe_load=23 (exact), Q=34 (+3.7%),
   Smash=7.0 (+2.9%), max_load=32 (31.2 unrounded), alpha=12 (-2.8%),
@@ -158,56 +158,98 @@ don't apply there.
     for alpha, 22.4 / 4.7 x 2.2 = 10.5, matching speedbop's 10. 15 matches
     the 0.96 row's LCS 3.2 instead, so that step likely read the wrong
     row.
+- **Re-compared after the standard-atmosphere switch (2026-10)**: KEAS
+  and Mach now follow the standard atmosphere (see the calibration section
+  below), so every speedbop value at altitude moved; the notes above record
+  the comparisons as they stood at the time. Against the same manual
+  passes, speedbop now reads:
+  - *#1* (alt 0): KEAS/Q/Smash unchanged (density ratio is 1 at sea level).
+    Mach is now 0.62 (400/650 = 0.615); the re-read said 0.6, the first
+    pass 0.62 -- both within the reading precision of that scale.
+  - *#2*: KEAS 357 vs manual 354 (-0.8%, was +1.2% the other way), Q 43.2
+    vs 42 (-2.8%), Smash 9.0 vs 8.9 (-1.1%).
+  - *#6*: max_load 41 vs manual 42 (+2.4%, was +7.7%) -- the smash gap
+    #5/#6 flagged was mostly the old KEAS bias.
+  - *#8*: KEAS 317 vs 316, Q 34.1 vs 34, max_load 32 vs 32, induced 69.6
+    vs 70, end speed 358.5 vs 359 (+0.1%).
+  - *#9*: KEAS 52 vs manual 52.
+  - *#10*: KEAS 198 vs 198, Q 13.3 vs 13, Mach 0.41 vs 0.41, end speed
+    253.7 vs 252 (-0.7%, using the pass's corrected sum).
+  - *#7 sits on a lift-row boundary*: speedbop's KEAS 385 (manual 382,
+    -0.8%) gives Mach 0.788, which rounds to 0.79 and selects the 0.84 lift
+    row (LCS 3.8 / IDS 232); the manual Mach 0.78 selects the 0.78 row
+    (4.2 / 270). So alpha (8.74 vs 9.8) and max_load (51 vs 46) now
+    differ, while induced drag (75.3 vs 72) and the end speed (424.2 vs
+    429, +1.1%) still agree -- a lower LCS and a lower IDS largely cancel.
+    Any KEAS of 383 or less would land on the 0.78 row, so this is the
+    step-wise table amplifying a 0.8% reading difference, not a calibration
+    error. A turn scenario a few knots clear of a row boundary would make a
+    cleaner end-to-end check.
 - **#9** looks backwards at first glance (`max_load=0` while
   `sustained_load=2.11`), but it's expected: near stall, available lift
   collapses faster than the energy margin does, so structure (not thrust)
   becomes the binding constraint.
 - **The sustained curve is bumpy** where mach crosses a lift/drag table
-  row (e.g. the peak sits exactly on the 0.72 row, and 450kt drops to
-  9.48 as the 0.78 row takes over). That's the step-wise tables, not
-  noise -- expect sustained load to jump at those breakpoints.
+  row (e.g. the peak sits exactly on the 0.72 row at 445kt, and by 448kt
+  it drops to 9.51 as the 0.78 row takes over). That's the step-wise
+  tables, not noise -- expect sustained load to jump at those breakpoints.
 - **The EM chart shows sustained load in whole loads, rounded down**,
   like the lift-limited line, since pulls are whole numbers. The values
-  in this table (e.g. #10's 6.35) are the precise `sustained_load()`
+  in this table (e.g. #10's 6.48) are the precise `sustained_load()`
   figures; the chart and its tooltip show the whole-load value (6).
 
 ## Calibrating the E6B conversion scales (keas/q/mach/smash/engine)
 
-`get_keas()`, `get_q()`, `get_mach()`, and `get_smash()` are not physics
-derivations -- they're closed-form curves fit against sample readings taken
-off the physical E6B (see `e6b/fit.py` and the data in `e6b/*.csv` and
-`e6b/samples/*.csv`).
+`get_keas()`, `get_q()`, `get_mach()`, `get_smash()` and the engine scale are
+closed-form curves fit against sample readings taken off the physical E6B
+(see `e6b/fit.py` and the data in `e6b/*.csv` and `e6b/samples/*.csv`).
+KEAS, mach and the engine scale turned out to be the International Standard
+Atmosphere with two device constants: one game altitude unit is 200 ft, and
+the sea-level speed of sound is 650 kt (`performance.py`).
 
 - **`smash = 10*q/wl`** is an exact match against all 38 `e6b/smash.csv`
   samples (0% error) -- nothing to recalibrate here.
-- **`get_keas()` reads ~1.5% low at mid altitudes (open)**: across
-  #2/#7/#8/#10 (all alt 75) manual KEAS read 1.2-1.9% high, never low --
-  and speedbop's own calibration samples agree with the manual reads: every
-  `e6b/samples/keas.csv` point at altitudes 50-100 sits 1-2% above the
-  formula (e.g. alt 75 / 400 KTAS reads 316, the formula gives 311). The
-  single exponential `ktas / exp(0.003358*alt)` is the best fit across
-  0-300 but can't follow the real curve's shape, so it's biased low in the
-  middle, which also pushes Q (~2x the KEAS error) and Smash low. A
-  standard-atmosphere density model, `keas = ktas * sqrt(sigma)` with 200 ft
-  per altitude unit (the same basis the engine scale uses), cuts the median
-  error against `keas.csv` from 1.44% to 0.34%, but reads ~3% high at a few
-  alt 120-175 points, and the matching ISA form for mach fits
-  `e6b/mach.csv` slightly worse than the current formula (2.2% vs 1.8%
-  median). Worth a dedicated calibration pass before changing anything,
-  since it would shift almost every derived value.
-- **`get_keas()`**'s hardcoded coefficient (0.003358) is the least-squares
-  optimum against `e6b/samples/keas.csv` (but see above). One sample row still
-  looks like an unconfirmed data-entry typo: `altitude=175, ktas=500,
-  keas=222` -- neighbors at the same altitude (300->168, 650->352) both
-  formula and interpolation predict ~272-273 there, not 222. Worth
-  re-reading that exact point on the physical device.
+- **KEAS and Mach follow the standard atmosphere (2026-10)**:
+  `keas = ktas * sqrt(sigma)` and `mach = keas / (650 * sqrt(delta))`, with
+  `sigma`/`delta` the ISA density/pressure ratios at 200 ft per altitude unit
+  (tropopause at 36,089 ft), replacing the old single exponentials
+  `ktas / exp(0.003358*alt)` and `keas * exp(0.0044*alt) / 670`.
+  - *Why*: manual KEAS at alt 75 read 1.2-1.9% high on #2/#7/#8/#10, never
+    low, and speedbop's own `e6b/samples/keas.csv` agreed with the manual
+    reads -- every point at altitudes 50-100 sat 1-2% above the old formula
+    (alt 75 / 400 KTAS reads 316; the exponential gave 311, the standard
+    atmosphere gives 317). A single exponential fit across 0-300 can't follow
+    the real curve's shape, so it ran low in the middle and high near alt
+    200, and dragged Q and Smash with it.
+  - *KEAS fit*: with the altitude unit left free, the fit lands on 201.4 ft;
+    at 200 ft the median error against `keas.csv` is 0.34% (was 1.44%), with
+    no altitude-dependent bias (the old formula ran +1.8% at alt 75-100 and
+    -3% at alt 200).
+  - *Mach fit*: the altitude shape fits at 199.4 ft per unit. The
+    speed-of-sound constant is the device's, not the textbook 661.47 kt:
+    every `mach.csv` reading implies nearly the same value at every
+    altitude (median 649.3 kt), the sea-level reading gives exactly 650.0,
+    and a least-squares fit gives 649.7. At 650 kt the median error is
+    0.91% (was 1.75%); at 661.47 kt it would be 2.19%.
+  - *Readings worth re-reading on the device* (the calibration tests in
+    `tests/test_performance.py` exclude only `175,500,222` and the two
+    worst mach readings):
+    - `keas.csv`: `175,500,222` (formula 278, -20%; neighbors agree with
+      the formula, so almost certainly a transcription slip), `120,1000,658`
+      (formula 681, -3.4%), `150,600,355` (formula 367, -3.3%) and
+      `175,650,352` (formula 362, -2.7%).
+    - `mach.csv`: `20,500,0.90` (formula 0.83, +8.7%), `200,420,1.40`
+      (formula 1.50, -6.8%; the `200,391,1.40` row next to it fits),
+      `200,498,1.70` (formula 1.78, -4.5%) and `50,258,0.46` (formula 0.48,
+      -3.9%).
   - **altitude=0 is a free, exact precision check** -- by definition
-    keas=ktas there (`exp(0.003358*0)=1`), so any deviation read off the
+    keas=ktas there (density ratio 1), so any deviation read off the
     physical device at altitude 0 is pure instrument/reading error, not a
     formula problem -- a useful error bar (roughly 1%) to apply to every
     other manual reading too.
-- **`get_q()`** and **`get_mach()`** both turned out to be clean closed-form
-  relationships after all -- a first pass with denser data showed R^2
+- **`get_q()`** and **`get_mach()`** (history -- mach has since moved to the
+  standard atmosphere above; q is unchanged) both turned out to be clean
+  closed-form relationships after all -- a first pass with denser data showed R^2
   dropping (0.996 and 0.982), which briefly looked like evidence they
   needed lookup tables instead. That was three data-entry typos, not a
   real property of the relationships: with the E6B being a physically
@@ -230,11 +272,10 @@ off the physical E6B (see `e6b/fit.py` and the data in `e6b/*.csv` and
     value either way -- but roughly 8-10% of (keas, altitude) combinations
     elsewhere do shift by one rounded unit, so this is a real (if small)
     accuracy change across the whole app, not just these two functions.
-  - mach's remaining ~2% typical / ~10% worst-case error (worst point:
-    `keas=500, alt=20, mach=0.9`) has no single dominant outlier left --
-    it reads as ordinary manual-reading noise concentrated in the
-    transonic/supersonic corner of the scale, the hardest region to read
-    precisely on the physical device.
+  - mach's remaining ~2% typical / ~10% worst-case error under that
+    exponential (worst point: `keas=500, alt=20, mach=0.9`) looked like
+    ordinary reading noise at the time; the standard-atmosphere form above
+    halves the typical error and leaves that point as a suspected slip.
 - **The p-alt/mach engine scale** (`engine_scale()`, readings in
   `e6b/mach_engine.csv`): altitude and mach are both set in a window and
   the scale is read as a ratio on the outer rings, so both windows'

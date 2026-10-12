@@ -1,6 +1,5 @@
 import dataclasses
 import json
-import math
 
 import pytest
 
@@ -17,7 +16,7 @@ from speedbop import (
 )
 from chart import IsobarChart, load_isobars
 from factories import REAL_ADC_PATH, REPO_ROOT, make_ab_adc, make_adc, make_state
-from performance import engine_scale
+from performance import engine_scale, ktas_from_keas
 
 
 # ---------------------------------------------------------------------------
@@ -264,8 +263,8 @@ def test_get_safe_load():
 
 
 def test_get_keas_at_sea_level_equals_ktas():
-    # KEAS == KTAS at altitude 0 by definition (exp(0.003358*0) == 1) --
-    # the same boundary condition e6b/samples/keas.csv was fit against.
+    # KEAS == KTAS at altitude 0 by definition (density ratio 1) -- the
+    # same boundary condition e6b/samples/keas.csv was fit against.
     state = make_state(ktas=123.0, altitude=0)
 
     assert state.get_keas() == 123
@@ -274,9 +273,11 @@ def test_get_keas_at_sea_level_equals_ktas():
 def test_get_keas_applies_altitude_correction_and_rounds():
     state = make_state(ktas=285.0, altitude=75)
 
-    # keas = round(285 / exp(0.003358*75)) -- rounds because KEAS is read
-    # off the device as a whole number, same granularity as e6b/keas.csv.
-    assert state.get_keas() == round(285.0 / math.exp(0.003358 * 75))
+    # Alt 75 is 15,000 ft (200 ft per unit): density ratio
+    # (1 - 6.87559e-6*15000)^4.25588 = 0.6292, so keas = 285 * sqrt(0.6292)
+    # = 226.1 -- rounded because KEAS is read off the device as a whole
+    # number, same granularity as e6b/keas.csv.
+    assert state.get_keas() == 226
     assert isinstance(state.get_keas(), int)
 
 
@@ -304,22 +305,21 @@ def test_get_smash_uses_wing_load_not_a_raw_weight():
     assert state.get_smash() == pytest.approx(round(10.0 * expected_q / expected_wing_load, 1))
 
 
-def test_get_mach_is_the_inverse_of_the_keas_formula():
-    # keas = 670.0 * mach * exp(-0.0044*altitude), so mach = keas *
-    # exp(0.0044*altitude) / 670.0 -- and at altitude=0 that's just
-    # keas/670, the cleanest case to pin down independent of the
-    # exponential term.
+def test_get_mach_at_sea_level_is_keas_over_the_speed_of_sound():
+    # mach = keas / (650 * sqrt(pressure ratio)), and the pressure ratio is
+    # 1 at altitude 0 -- the cleanest case to pin down the E6B's 650 kt
+    # sea-level speed of sound independent of the altitude term.
     state = make_state(ktas=700.0, altitude=0)
 
-    assert state.get_mach() == pytest.approx(round(700 / 670.0, 2))
+    assert state.get_mach() == pytest.approx(round(700 / 650.0, 2))
 
 
 def test_get_mach_keeps_two_decimals_so_table_lookups_pick_the_right_row():
-    # Regression test (TEST_PLAN.md #7): FJ-3M at 485 KTAS/alt 75 is mach
-    # 0.783. Rounding to one decimal (0.8) skipped past the 0.78 lift row
-    # and 0.79 drag row the slide-rule procedure actually selects.
+    # Regression test (found via TEST_PLAN.md #7): FJ-3M at 480 KTAS/alt 75
+    # is mach 0.78. Rounding to one decimal (0.8) skipped past the 0.78 lift
+    # row and 0.79 drag row the slide-rule procedure actually selects.
     adc = AircraftDataCard.from_json(REAL_ADC_PATH)
-    state = make_state(adc=adc, weight=17.4, ktas=485.0, altitude=75)
+    state = make_state(adc=adc, weight=17.4, ktas=480.0, altitude=75)
 
     assert state.get_mach() == pytest.approx(0.78)
     assert state.get_lcs() == pytest.approx(4.2)
@@ -330,7 +330,7 @@ def test_get_mach_keeps_two_decimals_so_table_lookups_pick_the_right_row():
 def test_get_mach_uses_rounded_keas_and_applies_altitude_correction():
     # Cross-checks against a real e6b/mach.csv reading (keas=250, alt=225,
     # mach=1.0) -- ktas is chosen so get_keas() rounds to exactly 250.
-    state = make_state(ktas=250 * math.exp(0.003358 * 225), altitude=225)
+    state = make_state(ktas=ktas_from_keas(250, 225), altitude=225)
 
     assert state.get_keas() == 250
     assert state.get_mach() == pytest.approx(1.0, abs=0.02)
@@ -340,7 +340,7 @@ def test_get_lcs_looks_up_by_mach():
     # ktas/altitude chosen so get_mach() lands exactly on 0.5, which is a
     # key in the synthetic table -- _bop_tablerow_lookup returns that
     # entry directly, and get_lcs() takes its first element.
-    state = make_state(ktas=337.3, altitude=0)
+    state = make_state(ktas=325.0, altitude=0)
 
     assert state.get_mach() == pytest.approx(0.5)
     assert state.get_lcs() == pytest.approx(4.0)
@@ -348,7 +348,7 @@ def test_get_lcs_looks_up_by_mach():
 
 def test_get_ids_looks_up_by_mach():
     # Same lookup as get_lcs(), but takes the table row's second element.
-    state = make_state(ktas=337.3, altitude=0)
+    state = make_state(ktas=325.0, altitude=0)
 
     assert state.get_mach() == pytest.approx(0.5)
     assert state.get_ids() == pytest.approx(100)
@@ -391,7 +391,7 @@ def test_get_roll_rate_clamps_above_the_highest_smash_entry():
 def test_get_engine_output_matches_the_isobar_chart_directly():
     # get_engine_output() should be a thin, rounded wrapper around the
     # chart embedded in the aircraft's own data card.
-    state = make_state(ktas=337.3, altitude=0)
+    state = make_state(ktas=325.0, altitude=0)
 
     expected = round(
         state.adc.dry_engine_output.interpolate(altitude=state.altitude, mach=state.get_mach()), 1
@@ -405,13 +405,13 @@ def test_get_engine_output_matches_the_isobar_chart_directly():
 
 
 def test_get_engine_output_defaults_to_afterburner_when_available():
-    state = make_state(adc=make_ab_adc(), ktas=337.3, altitude=0)  # mach rounds to 0.5
+    state = make_state(adc=make_ab_adc(), ktas=325.0, altitude=0)  # mach rounds to 0.5
 
     assert state.get_engine_output() == pytest.approx(50.0)  # from the AB chart, not dry's 30.0
 
 
 def test_get_engine_output_afterburner_false_uses_dry_chart():
-    state = make_state(adc=make_ab_adc(), ktas=337.3, altitude=0)
+    state = make_state(adc=make_ab_adc(), ktas=325.0, altitude=0)
 
     assert state.get_engine_output(afterburner=False) == pytest.approx(30.0)
 
@@ -420,7 +420,7 @@ def test_get_engine_output_falls_back_to_dry_when_aircraft_has_no_afterburner():
     # make_adc()'s default ab_engine_output is None -- afterburner=True
     # (the default) must not crash or misbehave for an aircraft that simply
     # doesn't have one; it should transparently use the dry chart.
-    state = make_state(ktas=337.3, altitude=0)
+    state = make_state(ktas=325.0, altitude=0)
 
     assert state.get_engine_output(afterburner=True) == pytest.approx(30.0)
 
@@ -439,7 +439,7 @@ def _make_drag_adc(**overrides):
 def test_get_form_drag_looks_up_by_mach():
     # Same ceiling-lookup semantics as get_lcs()/get_ids(): the first table
     # entry whose mach key is >= the query mach.
-    state = make_state(adc=_make_drag_adc(), ktas=337.3, altitude=0)  # mach rounds to 0.5
+    state = make_state(adc=_make_drag_adc(), ktas=325.0, altitude=0)  # mach rounds to 0.5
 
     assert state.get_mach() == pytest.approx(0.5)
     assert state.get_form_drag() == pytest.approx(20.0)
@@ -456,7 +456,7 @@ def test_get_total_drag_currently_equals_form_drag_alone():
     # get_total_drag() (see its own TODO) -- this pins that current
     # behavior so a future change enabling them is a deliberate, visible
     # diff here rather than a silent behavior change.
-    state = make_state(adc=_make_drag_adc(), ktas=337.3, altitude=0)
+    state = make_state(adc=_make_drag_adc(), ktas=325.0, altitude=0)
 
     assert state.get_total_drag() == pytest.approx(state.get_form_drag())
 
@@ -487,17 +487,18 @@ def test_aircraft_state_against_real_fixture():
 
     assert state.get_wing_load() == pytest.approx(58.0)
     assert state.get_safe_load() == pytest.approx(18.9)
-    assert state.get_keas() == 377
-    expected_q = round(377**2 / 2950, 1)
+    assert state.get_keas() == 385
+    expected_q = round(385**2 / 2950, 1)
     assert state.get_q() == pytest.approx(expected_q)
     assert state.get_smash() == pytest.approx(round(10.0 * expected_q / 58.0, 1))
     assert speedbop.speed_fp_from_ktas(state.ktas) == 12
-    assert state.get_mach() == pytest.approx(0.78)
-    assert state.get_engine_output() == pytest.approx(46.3)
-    assert state.get_lcs() == pytest.approx(4.2)
-    # smash=8.3 clears the fixture's highest roll_rate breakpoint (4.1).
+    # Mach 0.79 is just past the 0.78 lift row, so LCS comes off the 0.84 row.
+    assert state.get_mach() == pytest.approx(0.79)
+    assert state.get_engine_output() == pytest.approx(46.1)
+    assert state.get_lcs() == pytest.approx(3.8)
+    # smash=8.7 clears the fixture's highest roll_rate breakpoint (4.1).
     assert state.get_roll_rate() == "Fast"
-    assert state.get_max_load() == 44
+    assert state.get_max_load() == 51
 
 
 # ---------------------------------------------------------------------------
@@ -640,19 +641,19 @@ def test_calculate_performance_clamps_engine_output_to_chart_max():
 
 def test_form_delta_ktas_is_drag_times_smash_over_ten():
     # Confirmed against the player aids (TEST_PLAN.md #7): FJ-3M at 485
-    # KTAS/alt 75 reads the 0.79 drag row (24) at smash 8.3. Form drag grows
+    # KTAS/alt 75 reads the 0.79 drag row (24) at smash 8.7. Form drag grows
     # with speed -- an earlier drag/smash*10 version shrank with it instead.
     adc = AircraftDataCard.from_json(REAL_ADC_PATH)
     state = make_state(adc=adc, weight=17.4, ktas=485.0, altitude=75)
 
-    assert state.get_form_delta_ktas() == pytest.approx(24.0 * 8.3 / 10)
+    assert state.get_form_delta_ktas() == pytest.approx(24.0 * 8.7 / 10)
 
     slower = make_state(adc=adc, weight=17.4, ktas=300.0, altitude=75)
     assert slower.get_form_delta_ktas() < state.get_form_delta_ktas()
 
 
 def test_calculate_performance_form_delta_ktas_uses_total_drag():
-    state = make_state(adc=_make_drag_adc(), ktas=337.3, altitude=0)
+    state = make_state(adc=_make_drag_adc(), ktas=325.0, altitude=0)
 
     performance = calculate_performance(state, segment_pulls=0, delta_altitude=0)
 
@@ -676,7 +677,7 @@ def test_calculate_performance_form_delta_ktas_uses_total_drag():
 # ---------------------------------------------------------------------------
 
 def test_calculate_performance_afterburner_defaults_to_true():
-    state = make_state(adc=make_ab_adc(), ktas=337.3, altitude=0)
+    state = make_state(adc=make_ab_adc(), ktas=325.0, altitude=0)
 
     performance = calculate_performance(state, segment_pulls=0, delta_altitude=0)
 
@@ -685,7 +686,7 @@ def test_calculate_performance_afterburner_defaults_to_true():
 
 
 def test_calculate_performance_afterburner_false_uses_dry_chart():
-    state = make_state(adc=make_ab_adc(), ktas=337.3, altitude=0)
+    state = make_state(adc=make_ab_adc(), ktas=325.0, altitude=0)
 
     performance = calculate_performance(
         state, segment_pulls=0, delta_altitude=0, afterburner=False
@@ -701,7 +702,7 @@ def test_calculate_performance_engine_output_clamp_respects_afterburner_toggle()
     # override would clamp against the AB max even on a dry-only turn --
     # requesting more than the dry engine can do should clamp to the DRY
     # max here, not the (higher) AB max.
-    state = make_state(adc=make_ab_adc(), ktas=337.3, altitude=0)
+    state = make_state(adc=make_ab_adc(), ktas=325.0, altitude=0)
 
     performance = calculate_performance(
         state, segment_pulls=0, delta_altitude=0, afterburner=False, engine_output=999.0
@@ -715,7 +716,7 @@ def test_turn_performance_max_engine_output_respects_actual_afterburner_used():
     # afterburner parameter -- a property can't take arguments from the
     # caller, so that parameter was dead and it always reported the AB max
     # regardless of which mode the turn actually used.
-    state = make_state(adc=make_ab_adc(), ktas=337.3, altitude=0)
+    state = make_state(adc=make_ab_adc(), ktas=325.0, altitude=0)
 
     dry_turn = calculate_performance(state, segment_pulls=0, afterburner=False)
     assert dry_turn.max_engine_output == pytest.approx(30.0)
@@ -725,7 +726,7 @@ def test_turn_performance_max_engine_output_respects_actual_afterburner_used():
 
 
 def test_performance_history_resolve_turn_passes_through_afterburner():
-    state = make_state(adc=make_ab_adc(), ktas=337.3, altitude=0)
+    state = make_state(adc=make_ab_adc(), ktas=325.0, altitude=0)
     history = PerformanceHistory(state)
 
     performance = history.resolve_turn(segment_pulls=0, afterburner=False)
@@ -827,9 +828,9 @@ def test_turn_performance_gs_and_new_speed_fp():
 def test_turn_speed_fp_comes_from_ktas_not_keas():
     # Regression test: the turn breakdown read FP off KEAS while the turn
     # screen's stat bar reads it off KTAS, so at altitude they disagreed
-    # (383 KTAS at alt 30 is 346 KEAS: 9 FP vs 10 FP).
+    # (383 KTAS at alt 30 is 350 KEAS: 9 FP vs 10 FP).
     state = make_state(ktas=383.0, altitude=30)
-    assert state.get_keas() == 346
+    assert state.get_keas() == 350
 
     performance = calculate_performance(state, segment_pulls=0, delta_altitude=0)
 
@@ -953,21 +954,21 @@ def test_main_runs_and_prints_expected_values(capsys, monkeypatch):
     assert "Wing load:  52.7" in out
     assert "Safe load:  20.9" in out
     assert "KTAS: 385 10" in out
-    assert "KEAS: 342" in out
-    assert "Q: 39.6" in out
-    assert "Smash: 7.5" in out
-    assert "Mach: 0.6" in out
-    assert "Engine output: 57.1" in out
+    assert "KEAS: 347" in out
+    assert "Q: 40.8" in out
+    assert "Smash: 7.7" in out
+    assert "Mach: 0.61" in out
+    assert "Engine output: 56.7" in out
     assert "LCS: 5.6" in out
-    assert "Max load: 34" in out
+    assert "Max load: 35" in out
     assert "Corner speed: 279" in out
     assert "[Performance]" in out
     assert "Pulls:         22" in out
     # Swift Mk5 has an afterburner, resolve_turn() defaults afterburner=True,
     # and main() doesn't override engine_output, so the turn uses the AB
-    # chart's max (57.1) -- divided by the engine scale into 56.2 base
-    # knots, then scaled by combat weight / weight (15.8/17.4) to 51.0.
-    assert "Engine  dKTAS: 51.0 (output 57.1, max 57.1, base 56.2)" in out
+    # chart's max (56.7) -- divided by the engine scale into 56.2 base
+    # knots, then scaled by combat weight / weight (15.8/17.4) to 51.1.
+    assert "Engine  dKTAS: 51.1 (output 56.7, max 56.7, base 56.2)" in out
     # Form drag is no longer hardcoded to 0 -- Swift Mk5's form table
     # produces a nonzero value at this state's mach.
-    assert "Form    dKTAS: 18.8" in out
+    assert "Form    dKTAS: 19.2" in out

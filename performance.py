@@ -15,15 +15,46 @@ import math
 import speedbop
 
 
+# The E6B's airspeed and engine windows follow the International Standard
+# Atmosphere with these two device constants, fit against the readings in
+# e6b/ (see TEST_PLAN.md).
 FEET_PER_ALTITUDE_UNIT = 200.0
+SPEED_OF_SOUND_KT = 650.0  # at sea level
+
+TROPOPAUSE_FT = 36089.0
+_LAPSE_PER_FT = 6.87559e-6
+_DECAY_PER_FT = 4.80634e-5  # above the tropopause
+_TROPOPAUSE_PRESSURE_RATIO = (1 - _LAPSE_PER_FT * TROPOPAUSE_FT) ** 5.25588
+
+
+def temperature_ratio(altitude: float) -> float:
+    """Standard-atmosphere temperature ratio T/T0, constant above the tropopause."""
+    feet = altitude * FEET_PER_ALTITUDE_UNIT
+    return 1 - _LAPSE_PER_FT * min(feet, TROPOPAUSE_FT)
 
 
 def pressure_ratio(altitude: float) -> float:
-    """Standard-atmosphere static pressure ratio p/p0 (tropopause at 36,089 ft)."""
+    """Standard-atmosphere static pressure ratio p/p0."""
     feet = altitude * FEET_PER_ALTITUDE_UNIT
-    if feet <= 36089.0:
-        return (1 - 6.87559e-6 * feet) ** 5.25588
-    return 0.22336 * math.exp(-4.80634e-5 * (feet - 36089.0))
+    if feet <= TROPOPAUSE_FT:
+        return temperature_ratio(altitude) ** 5.25588
+    return _TROPOPAUSE_PRESSURE_RATIO * math.exp(-_DECAY_PER_FT * (feet - TROPOPAUSE_FT))
+
+
+def density_ratio(altitude: float) -> float:
+    """Standard-atmosphere density ratio rho/rho0."""
+    return pressure_ratio(altitude) / temperature_ratio(altitude)
+
+
+def keas_from_ktas(ktas: float, altitude: float) -> float:
+    """Equivalent airspeed: true airspeed scaled by sqrt(density ratio)."""
+    return ktas * math.sqrt(density_ratio(altitude))
+
+
+def mach_from_keas(keas: float, altitude: float) -> float:
+    """Mach from equivalent airspeed and pressure altitude, the way the E6B's
+    window reads it: keas / (a0 * sqrt(pressure ratio))."""
+    return keas / (SPEED_OF_SOUND_KT * math.sqrt(pressure_ratio(altitude)))
 
 
 def engine_scale(altitude: float, mach: float) -> float:
@@ -52,8 +83,8 @@ def keas_from_q(q: float) -> float:
 
 
 def ktas_from_keas(keas: float, altitude: float) -> float:
-    """Inverse of AircraftState.get_keas(): keas = ktas / exp(0.003358*altitude)."""
-    return keas * math.exp(0.003358 * altitude)
+    """Inverse of keas_from_ktas()."""
+    return keas / math.sqrt(density_ratio(altitude))
 
 
 def ktas_from_q(q: float, altitude: float) -> float:

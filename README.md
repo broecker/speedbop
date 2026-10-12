@@ -181,7 +181,7 @@ including negative window values.
 
 If a boundary condition in the data proves an exponent or the leading
 constant `k` exactly — e.g. two quantities are defined to be equal at some
-reference point, as KEAS and KTAS are at sea level in `e6b/keas.csv` — pin
+reference point, as KEAS and KTAS are at sea level in `e6b/samples/keas.csv` — pin
 it instead of letting the regression fit it. Otherwise those degrees of
 freedom just get spent absorbing noise from elsewhere in the data, which
 can pull the fit away from a value you already know is correct:
@@ -189,7 +189,7 @@ can pull the fit away from a value you already know is correct:
 ```python
 from e6b.fit import fit_power_law, load_samples
 
-samples = load_samples("e6b/keas.csv")
+samples = load_samples("e6b/samples/keas.csv")
 result = fit_power_law(
     samples, output_key="ktas",
     linear_keys={"altitude"},
@@ -249,10 +249,17 @@ python3 -m e6b.fit e6b/mach.csv --output keas --linear alt --fixed-exponent mach
 # keas = 674.573 * mach^1 * exp(-0.0045*alt), R^2 = 0.999
 ```
 
-The real atmosphere's barometric power law doesn't fit this data at all
-(errors exceed 100% at high altitude) -- like the KTAS/KEAS relationship,
-the game approximates it with a plain exponential decay instead of the
-true physics formula.
+That exponential is only an approximation, though. With one game altitude
+unit = 200 ft, the real standard atmosphere fits better: `keas = 650 * mach
+* sqrt(delta)`, with `delta` the standard-atmosphere pressure ratio (0.9%
+median error against this file, vs 1.75% for the exponential). Its KTAS/KEAS
+counterpart, `keas = ktas * sqrt(sigma)` with `sigma` the density ratio,
+likewise beats a single exponential on `e6b/samples/keas.csv` (0.34% vs
+1.44%). speedbop uses those standard-atmosphere forms
+(`performance.keas_from_ktas()` and `performance.mach_from_keas()`); see
+`TEST_PLAN.md` for the calibration. A fit like this needs more than
+`fit.py`'s power-law/exponential families, so when a physical law is a
+candidate, test it directly against the readings.
 
 ### When both inputs are windows: the engine scale
 
