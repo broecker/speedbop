@@ -244,7 +244,7 @@ function updatePerformanceScreen() {
     ? { ktas: bestProxy.ktas, load: bestProxy.load, phadCells: bestProxy.phad_cells }
     : null;
   // The most PHAD cells any speed can hold indefinitely -- often not at the
-  // crossing above, since cells also depend on the speed FP.
+  // crossing above, since cells also fall with airspeed.
   const bestRateProxy = performanceModule.find_best_sustained_turn_rate(profile);
   const bestRate = bestRateProxy
     ? {

@@ -26,6 +26,14 @@ _LAPSE_PER_FT = 6.87559e-6
 _DECAY_PER_FT = 4.80634e-5  # above the tropopause
 _TROPOPAUSE_PRESSURE_RATIO = (1 - _LAPSE_PER_FT * TROPOPAUSE_FT) ** 5.25588
 
+# Level-turn rate (see turn_degrees()): one game turn, the PHAD's heading
+# resolution, and the physics to get from a load to a heading change.
+GAME_TURN_SECONDS = 6.0
+PHAD_CELL_DEGREES = 30.0
+LOADS_PER_G = 3.0  # as in speedbop.gs_from_pulls()
+STANDARD_GRAVITY_FT_S2 = 32.174
+FT_PER_S_PER_KNOT = 1.68781
+
 
 def temperature_ratio(altitude: float) -> float:
     """Standard-atmosphere temperature ratio T/T0, constant above the tropopause."""
@@ -134,15 +142,30 @@ def sustained_load(state: speedbop.AircraftState, afterburner: bool = True) -> f
     return math.sqrt(net_delta_ktas / k)
 
 
-def phad_cells_from_load(load: float, fp: int) -> float:
-    """Rule-of-thumb PHAD-cell turn rate: every half-FP's worth of load
-    spent turns one cell -- e.g. 8 load at 8 FP turns 2 cells."""
-    return 2 * load / fp
+def turn_degrees(load: float, ktas: float) -> float:
+    """Heading change over one game turn of a level turn at this load.
+
+    In a level turn 1 G of the load holds the aircraft up, so only the
+    horizontal part, sqrt(G**2 - 1), turns it: turn rate = g * sqrt(G**2 - 1)
+    / true airspeed. A load of 1 G (3 loads) or less doesn't turn at all.
+    """
+    gs = load / LOADS_PER_G
+    if gs <= 1 or ktas <= 0:
+        return 0.0
+    turn_rate = STANDARD_GRAVITY_FT_S2 * math.sqrt(gs**2 - 1) / (ktas * FT_PER_S_PER_KNOT)
+    return math.degrees(turn_rate * GAME_TURN_SECONDS)
 
 
-def round_phad_cells(cells: float) -> int:
-    """Whole PHAD cells, rounded to the nearest cell (halves round up)."""
-    return math.floor(cells + 0.5)
+def phad_cells_from_load(load: float, ktas: float) -> float:
+    """Level-turn PHAD cells for one game turn at this load, unrounded."""
+    return turn_degrees(load, ktas) / PHAD_CELL_DEGREES
+
+
+def whole_phad_cells(cells: float) -> int:
+    """Whole PHAD cells turned in one game turn: rounded down, since
+    leftover degrees don't carry over to the next turn."""
+    # The epsilon keeps float noise (2.9999999999) from costing a cell.
+    return math.floor(cells + 1e-9)
 
 
 def sustained_turn_profile(
@@ -166,12 +189,12 @@ def sustained_turn_profile(
     its performance off it, the same way any other turn-by-turn state would.
 
     Loads and cells are left unrounded by default. fractional=False clamps
-    them the way play does: whole loads rounded down, and the two turn-rate
-    fields rounded to the nearest whole cell.
+    them the way play does: whole loads, and whole cells for the two
+    turn-rate fields, both rounded down.
     """
-    def turn_cells(load: float, speed_fp: int) -> float:
-        cells = phad_cells_from_load(load, speed_fp)
-        return cells if fractional else round_phad_cells(cells)
+    def turn_cells(load: float, ktas: float) -> float:
+        cells = phad_cells_from_load(load, ktas)
+        return cells if fractional else whole_phad_cells(cells)
 
     points = []
     for ktas in ktas_values:
@@ -190,12 +213,12 @@ def sustained_turn_profile(
                 speed_fp=speed_fp,
                 sustained_load=sustained,
                 max_load=max_load,
-                sustained_phad_cells=phad_cells_from_load(sustained, speed_fp),
-                max_phad_cells=phad_cells_from_load(max_load, speed_fp),
+                sustained_phad_cells=phad_cells_from_load(sustained, ktas),
+                max_phad_cells=phad_cells_from_load(max_load, ktas),
                 # The most a turn can pull is max_load, sustainable or not
                 # -- spare energy beyond it can't buy a tighter turn.
-                max_pullable_cells=turn_cells(max_load, speed_fp),
-                sustained_turn_cells=turn_cells(min(sustained, max_load), speed_fp),
+                max_pullable_cells=turn_cells(max_load, ktas),
+                sustained_turn_cells=turn_cells(min(sustained, max_load), ktas),
                 engine_output=state.get_engine_output(afterburner),
                 total_drag=state.get_total_drag(),
             )
@@ -237,13 +260,10 @@ def find_best_sustained_turn(
             t = prev_diff / (prev_diff - curr_diff)
             ktas = prev.ktas + t * (curr.ktas - prev.ktas)
             load = prev.sustained_load + t * (curr.sustained_load - prev.sustained_load)
-            # speed_fp is a step function of KTAS -- prev's FP is a fine
-            # approximation given how narrow the bracket between two
-            # adjacent profile samples usually is.
             return speedbop.BestSustainedTurn(
                 ktas=ktas,
                 load=load,
-                phad_cells=phad_cells_from_load(load, prev.speed_fp),
+                phad_cells=phad_cells_from_load(load, ktas),
             )
     return None
 

@@ -365,7 +365,7 @@ class SustainedTurnPoint:
     sustained_phad_cells: float
     max_phad_cells: float
     # PHAD cells from max_load: the fastest turn possible at this speed,
-    # even if it bleeds energy. Rounded to the nearest whole cell with
+    # even if it bleeds energy. Rounded down to whole cells with
     # fractional=False, like sustained_turn_cells.
     max_pullable_cells: float
     # PHAD cells this speed can turn indefinitely: the cells from the lower
@@ -386,8 +386,8 @@ class BestSustainedTurn:
     settles here whatever the starting speed.
 
     This is NOT necessarily the best sustained turn rate: the PHAD-cell
-    rate also depends on the speed FP, so a faster speed holding more load
-    can out-turn it. See BestSustainedTurnRate for that.
+    rate also falls with airspeed, so a faster speed holding more load can
+    out-turn it. See BestSustainedTurnRate for that.
     """
 
     ktas: float

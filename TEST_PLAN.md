@@ -2,7 +2,7 @@
 
 The sustained-turn / EM chart feature (`performance.py`: `sustained_load()`,
 `find_best_sustained_turn()`, `find_best_sustained_turn_rate()`,
-`find_structural_corner_speed()`, `phad_cells_from_load()`) layers new, derived analysis on top of the game's
+`find_structural_corner_speed()`, `turn_degrees()`/`phad_cells_from_load()`) layers new, derived analysis on top of the game's
 existing per-turn calculation. Some of it corresponds directly to values a
 player reads off the physical E6B-style slide rule and the printed Aircraft
 Data Card (ADC) tables; some of it (sustained load, corner speed) is purely
@@ -22,6 +22,8 @@ method.
   gain or loss).
 - **Corner speed (13-14)** -- cross-check against the ADC's printed
   structural G rating directly.
+- **Turn rate (15-16)** -- fly the load as a level turn and count the
+  PHAD cells turned.
 
 Every scenario below also lists **wing loading** (`get_wing_load()`) and
 **safe load** (`get_safe_load()`) as intermediate values, since both feed
@@ -50,7 +52,8 @@ don't apply there.
 | 12 | Sustained load, declining/transonic side | FJ-3M dry, weight 17.4, alt 75, 520kt | sustained_load=6.73 (below the peak; 0 from ~546kt), wing_load=58.0, safe_load=18.9 | Pull 7 loads, expect approximately 520kt after (speedbop: 519.4) -- confirms the peak-and-decline is real, not a bug | Not yet run |
 | 13 | Literature corner speed | FJ-3M, weight 17.4, combat_safe_load=21 | `corner_speed()` at the 485kt state: 246 KEAS (approximately 310 KTAS @ alt 75); EM chart's Corner marker: 350 KTAS; wing_load=58.0, safe_load=18.9 | ADC's stated G rating + slide rule solve | Not yet run |
 | 14 | Sustained x lift-limited crossing ("Sustained" marker) | FJ-3M dry, weight 17.4, alt 75 | approximately 168 KTAS at 4 loads: in whole loads (as the chart shows both curves) sustained and max_load are both 4 from 152 to 168kt, then max_load steps to 5 at 169kt while sustained stays at 4 (precise sustained: 4.63); the app's marker, sampled every 10kt, reads 160kt / 4 loads with fractional loads off, and 157kt / 4.2 loads with them on (the default); wing_load=58.0, safe_load=18.9 | Confirm 4 loads is sustainable (holds speed) and the airframe allows 4 but not 5 loads just below 169kt | Not yet run |
-| 15 | Best sustained turn rate ("Best sustained rate" marker) | FJ-3M dry, weight 17.4, alt 75 | Fractional loads on (default): 2.3 cells @ 170kt, 4.63 loads (the last 10kt sample before the 4 -> 5 FP step; at 1kt resolution the peak is 2.41 cells @ 177.5kt). Fractional loads off: 2 PHAD cells from 140 to 480kt (10kt samples): 3 loads at 140kt (4 FP, lift-limited; sustained 3.76) up to 9 loads at 480kt (12 FP, energy-limited; sustained 9.00); cells from the 2 x load / FP rule of thumb, rounded to nearest; wing_load=58.0, safe_load=18.9 | Pull 3 loads at 140kt and 9 loads at 480kt: each should hold speed (speedbop: 150.5kt and 480.0kt after) and turn 2 cells -- re-check once the real turn-rate formula replaces the rule of thumb | Not yet run |
+| 15 | Best sustained turn rate ("Best sustained rate" marker) | FJ-3M dry, weight 17.4, alt 75 | Fractional loads on (default): 1.70 cells @ 320kt, 8.05 loads (10kt samples) -- the rate is nearly flat from 250 to 340kt (1.67-1.70 cells), so E6B rounding picks the peak; at 1kt resolution it's 1.705 cells @ 297kt. Fractional loads off: 1 PHAD cell from 160 to 480kt (10kt samples): 4 loads at 160kt (lift-limited; sustained 4.22) up to 9 loads at 480kt (energy-limited; sustained 9.00); wing_load=58.0, safe_load=18.9 | Pull 4 loads at 160kt and 9 loads at 480kt: each should hold speed (speedbop: 162.9kt and 480.0kt after) and turn 1 cell (36.1 and 38.6 degrees) | Not yet run |
+| 16 | Level-turn rate (PHAD cells) | 9 loads (3 G) at 300 KTAS | 61.8 degrees in a 6s turn = 2.06 cells, 2 whole cells: turn rate = g x sqrt(G^2 - 1) / true airspeed, with 1 G holding the aircraft up; the 1091 x tan(bank) / KTAS pilot's rule gives the same | A played level turn, or the PHAD itself | Not yet run |
 
 ## Notes / flags
 
@@ -199,7 +202,16 @@ don't apply there.
   #10's 6.48) are the precise `sustained_load()` figures the chart and
   its tooltip show with the switch on. Switched off, both load lines are
   rounded down to whole loads, since pulls are whole numbers, and cells
-  to the nearest whole cell -- #10 would read 6.
+  are rounded down to whole cells, since leftover degrees don't carry over
+  to the next turn -- #10 would read 6.
+- **Turn rate is the physical level-turn rate**, not the old
+  2 x load / FP rule of thumb: `turn_degrees()` takes the horizontal part
+  of the load (1 G holds the aircraft up, so 3 loads or less doesn't turn)
+  over true airspeed, for a 6s game turn, in 30-degree PHAD cells. It
+  runs about 9% below the rule of thumb at high loads (the rule implied a
+  6.6s turn) and well below it at low loads (4 loads: 40% less). The
+  game's scale is consistent with this: 400ft hexes in a 6s turn is 39.5kt
+  per hex, matching the 40kt-wide FP bands.
 
 ## Calibrating the E6B conversion scales (keas/q/mach/smash/engine)
 
