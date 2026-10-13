@@ -49,8 +49,8 @@ don't apply there.
 | 11 | Sustained load, at the peak | FJ-3M dry, weight 17.4, alt 75, 445kt | sustained_load=10.22 (curve's max, on the mach-0.72 table breakpoint), wing_load=58.0, safe_load=18.9 | Pull 10 loads, expect approximately 445kt after (speedbop: 445.9) | Not yet run |
 | 12 | Sustained load, declining/transonic side | FJ-3M dry, weight 17.4, alt 75, 520kt | sustained_load=6.73 (below the peak; 0 from ~546kt), wing_load=58.0, safe_load=18.9 | Pull 7 loads, expect approximately 520kt after (speedbop: 519.4) -- confirms the peak-and-decline is real, not a bug | Not yet run |
 | 13 | Literature corner speed | FJ-3M, weight 17.4, combat_safe_load=21 | `corner_speed()` at the 485kt state: 246 KEAS (approximately 310 KTAS @ alt 75); EM chart's Corner marker: 350 KTAS; wing_load=58.0, safe_load=18.9 | ADC's stated G rating + slide rule solve | Not yet run |
-| 14 | Sustained x lift-limited crossing ("Sustained" marker) | FJ-3M dry, weight 17.4, alt 75 | approximately 168 KTAS at 4 loads: in whole loads (as the chart shows both curves) sustained and max_load are both 4 from 152 to 168kt, then max_load steps to 5 at 169kt while sustained stays at 4 (precise sustained: 4.63); the app's marker, sampled every 10kt, reads 160kt / 4 loads; wing_load=58.0, safe_load=18.9 | Confirm 4 loads is sustainable (holds speed) and the airframe allows 4 but not 5 loads just below 169kt | Not yet run |
-| 15 | Best sustained turn rate ("Best sustained rate" marker) | FJ-3M dry, weight 17.4, alt 75 | 2 PHAD cells from 140 to 480kt (10kt samples): 3 loads at 140kt (4 FP, lift-limited; sustained 3.76) up to 9 loads at 480kt (12 FP, energy-limited; sustained 9.00); cells from the 2 x load / FP rule of thumb, rounded to nearest; wing_load=58.0, safe_load=18.9 | Pull 3 loads at 140kt and 9 loads at 480kt: each should hold speed (speedbop: 150.5kt and 480.0kt after) and turn 2 cells -- re-check once the real turn-rate formula replaces the rule of thumb | Not yet run |
+| 14 | Sustained x lift-limited crossing ("Sustained" marker) | FJ-3M dry, weight 17.4, alt 75 | approximately 168 KTAS at 4 loads: in whole loads (as the chart shows both curves) sustained and max_load are both 4 from 152 to 168kt, then max_load steps to 5 at 169kt while sustained stays at 4 (precise sustained: 4.63); the app's marker, sampled every 10kt, reads 160kt / 4 loads with fractional loads off, and 157kt / 4.2 loads with them on (the default); wing_load=58.0, safe_load=18.9 | Confirm 4 loads is sustainable (holds speed) and the airframe allows 4 but not 5 loads just below 169kt | Not yet run |
+| 15 | Best sustained turn rate ("Best sustained rate" marker) | FJ-3M dry, weight 17.4, alt 75 | Fractional loads on (default): 2.3 cells @ 170kt, 4.63 loads (the last 10kt sample before the 4 -> 5 FP step; at 1kt resolution the peak is 2.41 cells @ 177.5kt). Fractional loads off: 2 PHAD cells from 140 to 480kt (10kt samples): 3 loads at 140kt (4 FP, lift-limited; sustained 3.76) up to 9 loads at 480kt (12 FP, energy-limited; sustained 9.00); cells from the 2 x load / FP rule of thumb, rounded to nearest; wing_load=58.0, safe_load=18.9 | Pull 3 loads at 140kt and 9 loads at 480kt: each should hold speed (speedbop: 150.5kt and 480.0kt after) and turn 2 cells -- re-check once the real turn-rate formula replaces the rule of thumb | Not yet run |
 
 ## Notes / flags
 
@@ -194,10 +194,12 @@ don't apply there.
   row (e.g. the peak sits exactly on the 0.72 row at 445kt, and by 448kt
   it drops to 9.51 as the 0.78 row takes over). That's the step-wise
   tables, not noise -- expect sustained load to jump at those breakpoints.
-- **The EM chart shows sustained load in whole loads, rounded down**,
-  like the lift-limited line, since pulls are whole numbers. The values
-  in this table (e.g. #10's 6.48) are the precise `sustained_load()`
-  figures; the chart and its tooltip show the whole-load value (6).
+- **The EM chart shows unrounded loads and cells by default** (the
+  "Fractional loads & cells" switch). The values in this table (e.g.
+  #10's 6.48) are the precise `sustained_load()` figures the chart and
+  its tooltip show with the switch on. Switched off, both load lines are
+  rounded down to whole loads, since pulls are whole numbers, and cells
+  to the nearest whole cell -- #10 would read 6.
 
 ## Calibrating the E6B conversion scales (keas/q/mach/smash/engine)
 

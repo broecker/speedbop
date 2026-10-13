@@ -499,6 +499,8 @@ def test_aircraft_state_against_real_fixture():
     # smash=8.7 clears the fixture's highest roll_rate breakpoint (4.1).
     assert state.get_roll_rate() == "Fast"
     assert state.get_max_load() == 51
+    # alpha_max 22.4 / LCS 3.8 * smash 8.7, before get_max_load() rounds it down.
+    assert state.get_lift_limited_load() == pytest.approx(22.4 / 3.8 * 8.7)
 
 
 # ---------------------------------------------------------------------------

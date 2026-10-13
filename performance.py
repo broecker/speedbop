@@ -151,6 +151,7 @@ def sustained_turn_profile(
     altitude: int,
     ktas_values: list[float],
     afterburner: bool = True,
+    fractional: bool = True,
 ) -> list[speedbop.SustainedTurnPoint]:
     """Sustained-turn performance across a range of speeds at one altitude --
     the data behind an energy-maneuverability chart: for each speed, how
@@ -163,30 +164,38 @@ def sustained_turn_profile(
     The speed range is entirely up to the caller (a chart, a script, a
     test) -- this just builds one AircraftState per KTAS value and reads
     its performance off it, the same way any other turn-by-turn state would.
+
+    Loads and cells are left unrounded by default. fractional=False clamps
+    them the way play does: whole loads rounded down, and the two turn-rate
+    fields rounded to the nearest whole cell.
     """
+    def turn_cells(load: float, speed_fp: int) -> float:
+        cells = phad_cells_from_load(load, speed_fp)
+        return cells if fractional else round_phad_cells(cells)
+
     points = []
     for ktas in ktas_values:
         state = speedbop.AircraftState(adc, weight, ktas, altitude)
         speed_fp = speedbop.speed_fp_from_ktas(ktas)
-        whole_sustained_load = math.floor(sustained_load(state, afterburner))
-        max_load = state.get_max_load()
-        sustained_phad_cells = phad_cells_from_load(whole_sustained_load, speed_fp)
-        max_phad_cells = phad_cells_from_load(max_load, speed_fp)
+        if fractional:
+            sustained = sustained_load(state, afterburner)
+            max_load = state.get_lift_limited_load()
+        else:
+            sustained = math.floor(sustained_load(state, afterburner))
+            max_load = state.get_max_load()
         points.append(
             speedbop.SustainedTurnPoint(
                 ktas=ktas,
                 mach=state.get_mach(),
                 speed_fp=speed_fp,
-                sustained_load=whole_sustained_load,
+                sustained_load=sustained,
                 max_load=max_load,
-                sustained_phad_cells=sustained_phad_cells,
-                max_phad_cells=max_phad_cells,
+                sustained_phad_cells=phad_cells_from_load(sustained, speed_fp),
+                max_phad_cells=phad_cells_from_load(max_load, speed_fp),
                 # The most a turn can pull is max_load, sustainable or not
                 # -- spare energy beyond it can't buy a tighter turn.
-                max_pullable_cells=round_phad_cells(max_phad_cells),
-                sustained_turn_cells=round_phad_cells(
-                    phad_cells_from_load(min(whole_sustained_load, max_load), speed_fp)
-                ),
+                max_pullable_cells=turn_cells(max_load, speed_fp),
+                sustained_turn_cells=turn_cells(min(sustained, max_load), speed_fp),
                 engine_output=state.get_engine_output(afterburner),
                 total_drag=state.get_total_drag(),
             )

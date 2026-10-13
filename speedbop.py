@@ -159,10 +159,13 @@ class AircraftState:
         row = _bop_tablerow_lookup(mach, self.adc.lift.mach_lcs_ids_table)
         return row[1]
 
+    def get_lift_limited_load(self) -> float:
+        """The load the wing makes at alpha_max, unrounded."""
+        return self.adc.lift.alpha_max / self.get_lcs() * self.get_smash()
+
     def get_max_load(self) -> int:
-        max_load = self.adc.lift.alpha_max / self.get_lcs() * self.get_smash()
         # We don't want to exceed our max load ever, hence we round down.
-        return math.floor(max_load)
+        return math.floor(self.get_lift_limited_load())
 
     def get_roll_rate(self) -> str:
         smash = self.get_smash()
@@ -355,19 +358,20 @@ class SustainedTurnPoint:
     ktas: float
     mach: float
     speed_fp: int
-    # Both in whole loads, rounded down -- pulls are whole numbers, so these
-    # are what a player can actually pull.
-    sustained_load: int
-    max_load: int
+    # Unrounded by default; with fractional=False, whole loads rounded down,
+    # since pulls are whole numbers in play.
+    sustained_load: float
+    max_load: float
     sustained_phad_cells: float
     max_phad_cells: float
-    # Whole PHAD cells from max_load: the fastest turn possible at this
-    # speed, even if it bleeds energy.
-    max_pullable_cells: int
-    # Whole PHAD cells this speed can turn indefinitely: the cells from the
-    # lower of sustained_load and max_load, since a load above either one
-    # either bleeds speed or can't be pulled at all.
-    sustained_turn_cells: int
+    # PHAD cells from max_load: the fastest turn possible at this speed,
+    # even if it bleeds energy. Rounded to the nearest whole cell with
+    # fractional=False, like sustained_turn_cells.
+    max_pullable_cells: float
+    # PHAD cells this speed can turn indefinitely: the cells from the lower
+    # of sustained_load and max_load, since a load above either one either
+    # bleeds speed or can't be pulled at all.
+    sustained_turn_cells: float
     engine_output: float
     total_drag: float
 
@@ -393,17 +397,18 @@ class BestSustainedTurn:
 
 @dataclass(frozen=True)
 class BestSustainedTurnRate:
-    """The highest whole-cell PHAD turn rate a performance.sustained_turn_profile()
+    """The highest PHAD turn rate a performance.sustained_turn_profile()
     sweep can hold indefinitely, and the slowest run of speeds that holds it
     (slower turns the same cells in a tighter radius). load is what has to be
     pulled at ktas_min; faster speeds in the run need more load for the same
-    cells.
+    cells. With unrounded loads and cells the run is usually a single speed;
+    whole numbers make many speeds tie.
     """
 
-    cells: int
+    cells: float
     ktas_min: float
     ktas_max: float
-    load: int
+    load: float
 
 
 @dataclass(frozen=True)

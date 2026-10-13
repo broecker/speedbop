@@ -223,6 +223,7 @@ function updatePerformanceScreen() {
   const adc = speedbop.AircraftDataCard.from_json(pathlib.Path(`adc/${entry.path}`));
   const toggle = document.getElementById("performance-afterburner-toggle");
   const afterburner = !toggle.disabled && toggle.checked;
+  const fractional = document.getElementById("performance-fractional-toggle").checked;
 
   // Read once and reuse -- adc.characteristics is a fresh PyProxy on every
   // property access, so fetching it twice would create (and leak) two.
@@ -233,7 +234,7 @@ function updatePerformanceScreen() {
     ktasValues.push(ktas);
   }
 
-  const profile = performanceModule.sustained_turn_profile(adc, weight, altitude, ktasValues, afterburner);
+  const profile = performanceModule.sustained_turn_profile(adc, weight, altitude, ktasValues, afterburner, fractional);
   const points = profile.toJs({ dict_converter: Object.fromEntries });
   // Pass the original PyProxy list straight into another Python call rather
   // than the already-.toJs()'d copy -- Pyodide hands it back to Python as
@@ -276,13 +277,13 @@ function updatePerformanceScreen() {
   const captionParts = [`${entry.name} @ ${altitude} alt, ${modeLabel} power`];
   captionParts.push(
     best
-      ? `sustained: ${Math.round(best.ktas)} kt / ${wholeLoads(best.load)} / ${round1(best.phadCells)} PHAD cells`
+      ? `sustained: ${Math.round(best.ktas)} kt / ${formatLoads(best.load, fractional)} / ${round1(best.phadCells)} PHAD cells`
       : "no sustained-turn crossing in range"
   );
   if (bestRate) {
     captionParts.push(
-      `best sustained rate: ${phadCells(bestRate.cells)} @ ${ktasRange(bestRate.ktasMin, bestRate.ktasMax, " ")} ` +
-      `(${wholeLoads(bestRate.load)} at ${Math.round(bestRate.ktasMin)} kt)`
+      `best sustained rate: ${formatCells(bestRate.cells)} @ ${ktasRange(bestRate.ktasMin, bestRate.ktasMax, " ")} ` +
+      `(${formatLoads(bestRate.load, fractional)} at ${Math.round(bestRate.ktasMin)} kt)`
     );
   }
   if (structuralCorner) {
@@ -309,11 +310,11 @@ function updatePerformanceScreen() {
   }
 
   renderSustainedTurnChart(
-    document.getElementById("performance-chart"), points, best, bestRate, structuralCorner, currentState
+    document.getElementById("performance-chart"), points, best, bestRate, structuralCorner, currentState, fractional
   );
 }
 
-function renderSustainedTurnChart(container, points, best, bestRate, structuralCorner, currentState) {
+function renderSustainedTurnChart(container, points, best, bestRate, structuralCorner, currentState, fractional) {
   const width = 300;
   const height = 200;
   const padLeft = 28;
@@ -384,7 +385,7 @@ function renderSustainedTurnChart(container, points, best, bestRate, structuralC
     bestMarker =
       `<circle class="best-turn-point" cx="${bx.toFixed(1)}" cy="${by.toFixed(1)}" r="3.5"></circle>` +
       `<text class="best-turn-label" x="${bx.toFixed(1)}" y="${(by - 7).toFixed(1)}" text-anchor="middle">` +
-      `Sustained: ${Math.round(best.ktas)}kt / ${wholeLoads(best.load)}</text>`;
+      `Sustained: ${Math.round(best.ktas)}kt / ${formatLoads(best.load, fractional)}</text>`;
   }
 
   // The best sustained turn rate: a faint column across the run of speeds
@@ -405,7 +406,7 @@ function renderSustainedTurnChart(container, points, best, bestRate, structuralC
     bestRateMarker =
       `<line class="best-rate-bracket" x1="${x1.toFixed(1)}" y1="${axisY + 3}" x2="${x2.toFixed(1)}" y2="${axisY + 3}"></line>` +
       `<text class="best-rate-label" x="${labelX.toFixed(1)}" y="${height - 4}" text-anchor="middle">` +
-      `Best sustained rate: ${phadCells(bestRate.cells)} @ ${ktasRange(bestRate.ktasMin, bestRate.ktasMax, "")}</text>`;
+      `Best sustained rate: ${formatCells(bestRate.cells)} @ ${ktasRange(bestRate.ktasMin, bestRate.ktasMax, "")}</text>`;
   }
 
   // The classic aerodynamic corner speed -- purely structural, so it lands
@@ -469,10 +470,12 @@ function renderSustainedTurnChart(container, points, best, bestRate, structuralC
     // in the DOM layer instead, sized to exactly cover the SVG below it.
     `<div class="hover-target"></div>`;
 
-  wireSustainedTurnChartInteractivity(container, points, { x, y, y2, width, padLeft, plotW, ktasMin, ktasMax, loadCap, cellsMax });
+  wireSustainedTurnChartInteractivity(
+    container, points, { x, y, y2, width, padLeft, plotW, ktasMin, ktasMax, loadCap, cellsMax }, fractional
+  );
 }
 
-function wireSustainedTurnChartInteractivity(container, points, scale) {
+function wireSustainedTurnChartInteractivity(container, points, scale, fractional) {
   const svg = container.querySelector("svg");
   const hoverTarget = container.querySelector(".hover-target");
   const crosshair = container.querySelector(".crosshair");
@@ -512,10 +515,10 @@ function wireSustainedTurnChartInteractivity(container, points, scale) {
 
     tooltip.innerHTML =
       `<strong>${Math.round(p.ktas)} kt (${p.speed_fp} FP)</strong>` +
-      `<span class="tt-sustained">Sustained: ${wholeLoads(p.sustained_load)}</span><br>` +
-      `<span class="tt-structural">Lift-limited: ${wholeLoads(p.max_load)}</span><br>` +
-      `<span class="tt-cells">Turn rate: ${p.max_pullable_cells} PHAD cells</span><br>` +
-      `<span class="tt-cells">Sustained rate: ${phadCells(p.sustained_turn_cells)}</span>`;
+      `<span class="tt-sustained">Sustained: ${formatLoads(p.sustained_load, fractional)}</span><br>` +
+      `<span class="tt-structural">Lift-limited: ${formatLoads(p.max_load, fractional)}</span><br>` +
+      `<span class="tt-cells">Turn rate: ${round1(p.max_pullable_cells)} PHAD cells</span><br>` +
+      `<span class="tt-cells">Sustained rate: ${formatCells(p.sustained_turn_cells)}</span>`;
     tooltip.classList.remove("hidden");
 
     // Flip sides so the tooltip never overflows the chart's edge.
@@ -626,6 +629,7 @@ document.getElementById("performance-aircraft-select").addEventListener("change"
 document.getElementById("performance-weight-input").addEventListener("input", guardedUpdatePerformanceScreen);
 document.getElementById("performance-altitude-input").addEventListener("input", guardedUpdatePerformanceScreen);
 document.getElementById("performance-afterburner-toggle").addEventListener("change", guardedUpdatePerformanceScreen);
+document.getElementById("performance-fractional-toggle").addEventListener("change", guardedUpdatePerformanceScreen);
 
 // ---------------------------------------------------------------------
 // Turn screen: steppers
@@ -915,8 +919,10 @@ function round1(x) {
   return Math.round(x * 10) / 10;
 }
 
-function phadCells(cells) {
-  return cells === 1 ? "1 cell" : `${cells} cells`;
+// To one decimal -- whole numbers already print without one.
+function formatCells(cells) {
+  const n = round1(cells);
+  return `${n} ${n === 1 ? "cell" : "cells"}`;
 }
 
 // "140–480 kt", or just "160 kt" when the run is a single speed. unitGap is
@@ -929,6 +935,14 @@ function ktasRange(ktasMin, ktasMax, unitGap) {
 
 function wholeLoads(load) {
   const n = Math.floor(load);
+  return `${n} ${n === 1 ? "load" : "loads"}`;
+}
+
+// Interpolated markers land between whole loads too, so whole-number mode
+// still rounds them down explicitly.
+function formatLoads(load, fractional) {
+  if (!fractional) return wholeLoads(load);
+  const n = round1(load);
   return `${n} ${n === 1 ? "load" : "loads"}`;
 }
 

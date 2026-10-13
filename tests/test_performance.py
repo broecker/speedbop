@@ -139,13 +139,39 @@ def test_sustained_turn_profile_returns_one_point_per_ktas_value():
     assert all(isinstance(p, SustainedTurnPoint) for p in points)
 
 
-def test_sustained_turn_profile_matches_calling_aircraft_state_directly():
+def test_sustained_turn_profile_is_unrounded_by_default():
+    # alpha_max 21 so the lift-limited load isn't a whole number here.
+    adc = make_ab_adc(
+        lift=AircraftDataCard.Lift(alpha_max=21.0, mach_lcs_ids_table={0.5: (4.0, 100), 1.0: (2.0, 50)})
+    )
+    state = AircraftState(adc, weight=17.4, ktas=337.3, altitude=75)
+
+    (point,) = sustained_turn_profile(adc, weight=17.4, altitude=75, ktas_values=[337.3])
+
+    speed_fp = speedbop.speed_fp_from_ktas(state.ktas)
+    expected_sustained = sustained_load(state)
+    expected_max = state.get_lift_limited_load()
+    # Confirms the fixture actually has fractions to lose.
+    assert expected_sustained != math.floor(expected_sustained)
+    assert expected_max != math.floor(expected_max)
+
+    assert point.sustained_load == pytest.approx(expected_sustained)
+    assert point.max_load == pytest.approx(expected_max)
+    assert point.max_pullable_cells == pytest.approx(phad_cells_from_load(expected_max, speed_fp))
+    assert point.sustained_turn_cells == pytest.approx(
+        phad_cells_from_load(min(expected_sustained, expected_max), speed_fp)
+    )
+
+
+def test_sustained_turn_profile_in_whole_numbers_matches_calling_aircraft_state_directly():
     adc = make_ab_adc()
     # Nonzero altitude so get_keas() != ktas -- catches speed_fp being
     # computed from the wrong one (see the regression test below).
     state = AircraftState(adc, weight=17.4, ktas=337.3, altitude=75)
 
-    (point,) = sustained_turn_profile(adc, weight=17.4, altitude=75, ktas_values=[337.3])
+    (point,) = sustained_turn_profile(
+        adc, weight=17.4, altitude=75, ktas_values=[337.3], fractional=False
+    )
 
     expected_speed_fp = speedbop.speed_fp_from_ktas(state.ktas)
     # Whole loads, rounded down, like get_max_load().
@@ -178,8 +204,12 @@ def test_sustained_turn_profile_max_pullable_cells_tracks_max_load():
     # max_load on both sides of the crossing. Combat weight matches the
     # flying weight so engine output isn't scaled down.
     adc = make_ab_adc(stores=AircraftDataCard.Stores(combat_weight=17.4))
-    (low_speed_point,) = sustained_turn_profile(adc, weight=17.4, altitude=0, ktas_values=[110.0])
-    (high_speed_point,) = sustained_turn_profile(adc, weight=17.4, altitude=0, ktas_values=[300.0])
+    (low_speed_point,) = sustained_turn_profile(
+        adc, weight=17.4, altitude=0, ktas_values=[110.0], fractional=False
+    )
+    (high_speed_point,) = sustained_turn_profile(
+        adc, weight=17.4, altitude=0, ktas_values=[300.0], fractional=False
+    )
 
     # Confirms this test covers both sides of the crossing.
     assert low_speed_point.sustained_phad_cells > low_speed_point.max_phad_cells
@@ -199,8 +229,8 @@ def test_sustained_turn_cells_takes_the_lower_curve():
     (low_speed_point,) = sustained_turn_profile(adc, weight=17.4, altitude=0, ktas_values=[110.0])
     (high_speed_point,) = sustained_turn_profile(adc, weight=17.4, altitude=0, ktas_values=[300.0])
 
-    assert low_speed_point.sustained_turn_cells == round_phad_cells(low_speed_point.max_phad_cells)
-    assert high_speed_point.sustained_turn_cells == round_phad_cells(high_speed_point.sustained_phad_cells)
+    assert low_speed_point.sustained_turn_cells == pytest.approx(low_speed_point.max_phad_cells)
+    assert high_speed_point.sustained_turn_cells == pytest.approx(high_speed_point.sustained_phad_cells)
 
 
 def test_round_phad_cells_rounds_to_nearest_with_halves_up():
@@ -217,7 +247,8 @@ def test_turn_rate_holds_across_the_j6c_fp_step():
     # on either side of the step.
     adc = AircraftDataCard.from_json(REPO_ROOT / "adc" / "j-6c.json")
     points = sustained_turn_profile(
-        adc, weight=14, altitude=75, ktas_values=[250.0, 260.0, 270.0, 280.0], afterburner=False
+        adc, weight=14, altitude=75, ktas_values=[250.0, 260.0, 270.0, 280.0],
+        afterburner=False, fractional=False,
     )
 
     assert [p.speed_fp for p in points] == [6, 7, 7, 7]
@@ -348,13 +379,26 @@ def test_find_best_sustained_turn_on_the_real_fj3m_in_whole_loads():
     adc = AircraftDataCard.from_json(REAL_ADC_PATH)
     points = sustained_turn_profile(
         adc, weight=17.4, altitude=75,
-        ktas_values=[float(k) for k in range(0, 801, 10)], afterburner=False,
+        ktas_values=[float(k) for k in range(0, 801, 10)], afterburner=False, fractional=False,
     )
 
     best = find_best_sustained_turn(points)
 
     assert best.ktas == pytest.approx(160.0)
     assert best.load == pytest.approx(4.0)
+
+
+def test_find_best_sustained_turn_on_the_real_fj3m_unrounded():
+    adc = AircraftDataCard.from_json(REAL_ADC_PATH)
+    points = sustained_turn_profile(
+        adc, weight=17.4, altitude=75,
+        ktas_values=[float(k) for k in range(0, 801, 10)], afterburner=False,
+    )
+
+    best = find_best_sustained_turn(points)
+
+    assert best.ktas == pytest.approx(157.4, abs=0.1)
+    assert best.load == pytest.approx(4.17, abs=0.01)
 
 
 def test_find_best_sustained_turn_skips_the_zero_airspeed_dead_zone():
@@ -441,7 +485,21 @@ def test_find_best_sustained_turn_rate_returns_none_when_nothing_holds_a_cell():
     assert find_best_sustained_turn_rate([]) is None
 
 
-def test_find_best_sustained_turn_rate_on_the_real_fj3m():
+def test_find_best_sustained_turn_rate_on_the_real_fj3m_in_whole_numbers():
+    adc = AircraftDataCard.from_json(REAL_ADC_PATH)
+    points = sustained_turn_profile(
+        adc, weight=17.4, altitude=75,
+        ktas_values=[float(k) for k in range(0, 801, 10)], afterburner=False, fractional=False,
+    )
+
+    best = find_best_sustained_turn_rate(points)
+
+    assert best == BestSustainedTurnRate(cells=2, ktas_min=140.0, ktas_max=480.0, load=3)
+
+
+def test_find_best_sustained_turn_rate_on_the_real_fj3m_unrounded():
+    # Unrounded, the wide whole-cell plateau collapses to one speed: the
+    # last 10kt sample before the 4 -> 5 FP step at 180kt.
     adc = AircraftDataCard.from_json(REAL_ADC_PATH)
     points = sustained_turn_profile(
         adc, weight=17.4, altitude=75,
@@ -450,7 +508,9 @@ def test_find_best_sustained_turn_rate_on_the_real_fj3m():
 
     best = find_best_sustained_turn_rate(points)
 
-    assert best == BestSustainedTurnRate(cells=2, ktas_min=140.0, ktas_max=480.0, load=3)
+    assert best.cells == pytest.approx(2.31, abs=0.01)
+    assert best.ktas_min == best.ktas_max == pytest.approx(170.0)
+    assert best.load == pytest.approx(4.63, abs=0.01)
 
 
 # ---------------------------------------------------------------------------

@@ -93,6 +93,15 @@
     </div>
     <p id="performance-afterburner-caption" class="hint-line"></p>
 
+    <div class="field switch-field">
+      <label for="performance-fractional-toggle">Fractional loads &amp; cells</label>
+      <label class="switch">
+        <input type="checkbox" id="performance-fractional-toggle" checked>
+        <span class="switch-track"></span>
+      </label>
+    </div>
+    <p class="hint-line">Off: whole loads (rounded down) and whole cells (nearest), as pulled in play.</p>
+
     <div class="panel-box chart-panel">
       <p id="performance-chart-caption" class="hint-line"></p>
       <div class="chart-wrap">
@@ -208,6 +217,6 @@
 </section>
 
 <script src="https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.js"></script>
-<script type="module" src="web/app.js?v=13"></script>
+<script type="module" src="web/app.js?v=14"></script>
 </body>
 </html>
