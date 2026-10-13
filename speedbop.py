@@ -362,6 +362,10 @@ class SustainedTurnPoint:
     sustained_phad_cells: float
     max_phad_cells: float
     max_pullable_cells: int
+    # Whole PHAD cells this speed can turn indefinitely: the cells from the
+    # lower of sustained_load and max_load, since a load above either one
+    # either bleeds speed or can't be pulled at all.
+    sustained_turn_cells: int
     engine_output: float
     total_drag: float
 
@@ -372,14 +376,32 @@ class BestSustainedTurn:
     curves cross -- the fastest speed still limited by the airframe rather
     than energy. Below this speed, more Gs are available than the aircraft
     can structurally use; above it, more Gs are structurally available than
-    the aircraft has the energy to sustain -- so this crossing is the best
-    sustained turn an aircraft can fly (most Gs it can BOTH survive AND
-    hold indefinitely at once).
+    the aircraft has the energy to sustain. Pulling max load every turn
+    settles here whatever the starting speed.
+
+    This is NOT necessarily the best sustained turn rate: the PHAD-cell
+    rate also depends on the speed FP, so a faster speed holding more load
+    can out-turn it. See BestSustainedTurnRate for that.
     """
 
     ktas: float
     load: float
     phad_cells: float
+
+
+@dataclass(frozen=True)
+class BestSustainedTurnRate:
+    """The highest whole-cell PHAD turn rate a performance.sustained_turn_profile()
+    sweep can hold indefinitely, and the slowest run of speeds that holds it
+    (slower turns the same cells in a tighter radius). load is what has to be
+    pulled at ktas_min; faster speeds in the run need more load for the same
+    cells.
+    """
+
+    cells: int
+    ktas_min: float
+    ktas_max: float
+    load: int
 
 
 @dataclass(frozen=True)

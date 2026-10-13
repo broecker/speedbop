@@ -157,7 +157,8 @@ def sustained_turn_profile(
     many Gs can this aircraft sustain indefinitely (sustained_load) versus
     how many Gs the airframe can take at all (max_load), and the PHAD-cell
     turn rate each implies. See find_best_sustained_turn() for where the
-    sustained_load/max_load curves cross.
+    sustained_load/max_load curves cross, and find_best_sustained_turn_rate()
+    for the speeds that hold the most cells.
 
     The speed range is entirely up to the caller (a chart, a script, a
     test) -- this just builds one AircraftState per KTAS value and reads
@@ -183,6 +184,9 @@ def sustained_turn_profile(
                 # Whichever of the two turn rates is actually achievable at
                 # this speed, as a whole cell count.
                 max_pullable_cells=round_phad_cells(max(sustained_phad_cells, max_phad_cells)),
+                sustained_turn_cells=round_phad_cells(
+                    phad_cells_from_load(min(whole_sustained_load, max_load), speed_fp)
+                ),
                 engine_output=state.get_engine_output(afterburner),
                 total_drag=state.get_total_drag(),
             )
@@ -196,7 +200,9 @@ def find_best_sustained_turn(
     """Linearly interpolates between the two profile points straddling
     where sustained_load and max_load cross, walking the list in the order
     given (matching sustained_turn_profile()'s ascending-KTAS sweep) and
-    returning the first crossing found. Returns None if the two curves
+    returning the first crossing found. This is where max-load turns settle,
+    not necessarily the best sustained turn rate -- see
+    find_best_sustained_turn_rate() for that. Returns None if the two curves
     never cross across the swept range -- one dominates the other
     throughout, so there's no single best point to highlight.
 
@@ -231,6 +237,33 @@ def find_best_sustained_turn(
                 phad_cells=phad_cells_from_load(load, prev.speed_fp),
             )
     return None
+
+
+def find_best_sustained_turn_rate(
+    points: list[speedbop.SustainedTurnPoint],
+) -> speedbop.BestSustainedTurnRate | None:
+    """The highest sustained_turn_cells across the profile and the first
+    (slowest) contiguous run of points holding it, walking the list in the
+    order given (matching sustained_turn_profile()'s ascending-KTAS sweep).
+    The run's ends are sample points, so they're only as fine as the sweep.
+
+    Returns None if no point can hold even one cell.
+    """
+    best_cells = max((p.sustained_turn_cells for p in points), default=0)
+    if best_cells <= 0:
+        return None
+
+    start = next(i for i, p in enumerate(points) if p.sustained_turn_cells == best_cells)
+    end = start
+    while end + 1 < len(points) and points[end + 1].sustained_turn_cells == best_cells:
+        end += 1
+    slowest = points[start]
+    return speedbop.BestSustainedTurnRate(
+        cells=best_cells,
+        ktas_min=slowest.ktas,
+        ktas_max=points[end].ktas,
+        load=min(slowest.sustained_load, slowest.max_load),
+    )
 
 
 def find_structural_corner_speed(

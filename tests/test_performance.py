@@ -13,6 +13,7 @@ from performance import (
     density_ratio,
     engine_scale,
     find_best_sustained_turn,
+    find_best_sustained_turn_rate,
     find_structural_corner_speed,
     keas_from_q,
     ktas_from_keas,
@@ -30,6 +31,7 @@ from speedbop import (
     AircraftDataCard,
     AircraftState,
     BestSustainedTurn,
+    BestSustainedTurnRate,
     StructuralCornerPoint,
     SustainedTurnPoint,
     calculate_performance,
@@ -164,6 +166,9 @@ def test_sustained_turn_profile_matches_calling_aircraft_state_directly():
             phad_cells_from_load(state.get_max_load(), expected_speed_fp),
         )
     )
+    assert point.sustained_turn_cells == round_phad_cells(
+        phad_cells_from_load(min(expected_sustained, state.get_max_load()), expected_speed_fp)
+    )
     assert point.engine_output == pytest.approx(state.get_engine_output())
     assert point.total_drag == pytest.approx(state.get_total_drag())
 
@@ -186,6 +191,17 @@ def test_sustained_turn_profile_max_pullable_cells_takes_the_higher_curve():
 
     assert low_speed_point.max_pullable_cells == round_phad_cells(low_speed_point.sustained_phad_cells)
     assert high_speed_point.max_pullable_cells == round_phad_cells(high_speed_point.max_phad_cells)
+
+
+def test_sustained_turn_cells_takes_the_lower_curve():
+    # Holding a turn needs a load that's both sustainable and pullable:
+    # lift-limited at low speed, energy-limited at high speed.
+    adc = make_ab_adc(stores=AircraftDataCard.Stores(combat_weight=17.4))
+    (low_speed_point,) = sustained_turn_profile(adc, weight=17.4, altitude=0, ktas_values=[110.0])
+    (high_speed_point,) = sustained_turn_profile(adc, weight=17.4, altitude=0, ktas_values=[300.0])
+
+    assert low_speed_point.sustained_turn_cells == round_phad_cells(low_speed_point.max_phad_cells)
+    assert high_speed_point.sustained_turn_cells == round_phad_cells(high_speed_point.sustained_phad_cells)
 
 
 def test_round_phad_cells_rounds_to_nearest_with_halves_up():
@@ -255,6 +271,9 @@ def _sustained_point(ktas, sustained_load, max_load, speed_fp=12):
         sustained_phad_cells=sustained_phad_cells,
         max_phad_cells=max_phad_cells,
         max_pullable_cells=round_phad_cells(max(sustained_phad_cells, max_phad_cells)),
+        sustained_turn_cells=round_phad_cells(
+            phad_cells_from_load(min(sustained_load, max_load), speed_fp)
+        ),
         engine_output=0.0, total_drag=0.0,
     )
 
@@ -370,6 +389,69 @@ def test_find_best_sustained_turn_on_a_real_profile():
     assert best is not None
     assert 0 < best.ktas < 600
     assert best.load > 0
+
+
+# ---------------------------------------------------------------------------
+# find_best_sustained_turn_rate
+# ---------------------------------------------------------------------------
+
+def test_find_best_sustained_turn_rate_returns_the_slowest_run_at_the_best_rate():
+    points = [
+        _sustained_point(100.0, sustained_load=4, max_load=2, speed_fp=4),   # 1 cell
+        _sustained_point(110.0, sustained_load=4, max_load=6, speed_fp=4),   # 2 cells
+        _sustained_point(120.0, sustained_load=5, max_load=7, speed_fp=5),   # 2 cells
+        _sustained_point(130.0, sustained_load=3, max_load=7, speed_fp=5),   # 1 cell
+        _sustained_point(140.0, sustained_load=5, max_load=8, speed_fp=5),   # 2 cells again
+    ]
+
+    best = find_best_sustained_turn_rate(points)
+
+    assert isinstance(best, BestSustainedTurnRate)
+    assert best.cells == 2
+    assert best.ktas_min == pytest.approx(110.0)
+    assert best.ktas_max == pytest.approx(120.0)
+    # The lower of sustained and max load at the run's slowest speed.
+    assert best.load == 4
+
+
+def test_find_best_sustained_turn_rate_can_differ_from_the_crossing():
+    # The crossing (where max-load turns settle) is at 110kt, 4 FP, for 2
+    # cells; a faster speed in a higher FP band holds 3.
+    points = [
+        _sustained_point(100.0, sustained_load=5, max_load=4, speed_fp=4),
+        _sustained_point(110.0, sustained_load=4, max_load=4, speed_fp=4),
+        _sustained_point(120.0, sustained_load=4, max_load=6, speed_fp=4),
+        _sustained_point(200.0, sustained_load=8, max_load=12, speed_fp=6),
+    ]
+
+    crossing = find_best_sustained_turn(points)
+    best = find_best_sustained_turn_rate(points)
+
+    assert crossing.ktas == pytest.approx(110.0)
+    assert best.cells == 3
+    assert best.ktas_min == pytest.approx(200.0)
+
+
+def test_find_best_sustained_turn_rate_returns_none_when_nothing_holds_a_cell():
+    points = [
+        _sustained_point(100.0, sustained_load=0, max_load=3),
+        _sustained_point(200.0, sustained_load=2, max_load=5),  # 2*2/12 rounds to 0
+    ]
+
+    assert find_best_sustained_turn_rate(points) is None
+    assert find_best_sustained_turn_rate([]) is None
+
+
+def test_find_best_sustained_turn_rate_on_the_real_fj3m():
+    adc = AircraftDataCard.from_json(REAL_ADC_PATH)
+    points = sustained_turn_profile(
+        adc, weight=17.4, altitude=75,
+        ktas_values=[float(k) for k in range(0, 801, 10)], afterburner=False,
+    )
+
+    best = find_best_sustained_turn_rate(points)
+
+    assert best == BestSustainedTurnRate(cells=2, ktas_min=140.0, ktas_max=480.0, load=3)
 
 
 # ---------------------------------------------------------------------------

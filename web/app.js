@@ -242,6 +242,17 @@ function updatePerformanceScreen() {
   const best = bestProxy
     ? { ktas: bestProxy.ktas, load: bestProxy.load, phadCells: bestProxy.phad_cells }
     : null;
+  // The most PHAD cells any speed can hold indefinitely -- often not at the
+  // crossing above, since cells also depend on the speed FP.
+  const bestRateProxy = performanceModule.find_best_sustained_turn_rate(profile);
+  const bestRate = bestRateProxy
+    ? {
+        cells: bestRateProxy.cells,
+        ktasMin: bestRateProxy.ktas_min,
+        ktasMax: bestRateProxy.ktas_max,
+        load: bestRateProxy.load,
+      }
+    : null;
   // The classic aerodynamic "corner speed" -- where max_load (lift-limited)
   // reaches the airframe's structural G rating. Purely structural, unlike
   // "best" above: it doesn't touch thrust/drag, so it's usually well past
@@ -255,6 +266,7 @@ function updatePerformanceScreen() {
   // growing memory unboundedly over a session until the tab is killed with
   // no JS exception and nothing in the console to explain why.
   cornerProxy?.destroy();
+  bestRateProxy?.destroy();
   bestProxy?.destroy();
   profile.destroy();
   characteristics.destroy();
@@ -267,6 +279,12 @@ function updatePerformanceScreen() {
       ? `sustained: ${Math.round(best.ktas)} kt / ${wholeLoads(best.load)} / ${round1(best.phadCells)} PHAD cells`
       : "no sustained-turn crossing in range"
   );
+  if (bestRate) {
+    captionParts.push(
+      `best sustained rate: ${phadCells(bestRate.cells)} @ ${ktasRange(bestRate.ktasMin, bestRate.ktasMax, " ")} ` +
+      `(${wholeLoads(bestRate.load)} at ${Math.round(bestRate.ktasMin)} kt)`
+    );
+  }
   if (structuralCorner) {
     captionParts.push(`corner: ${Math.round(structuralCorner.ktas)} kt / ${round1(structuralCorner.load)} loads`);
   }
@@ -291,11 +309,11 @@ function updatePerformanceScreen() {
   }
 
   renderSustainedTurnChart(
-    document.getElementById("performance-chart"), points, best, structuralCorner, currentState
+    document.getElementById("performance-chart"), points, best, bestRate, structuralCorner, currentState
   );
 }
 
-function renderSustainedTurnChart(container, points, best, structuralCorner, currentState) {
+function renderSustainedTurnChart(container, points, best, bestRate, structuralCorner, currentState) {
   const width = 300;
   const height = 200;
   const padLeft = 28;
@@ -369,6 +387,27 @@ function renderSustainedTurnChart(container, points, best, structuralCorner, cur
       `Sustained: ${Math.round(best.ktas)}kt / ${wholeLoads(best.load)}</text>`;
   }
 
+  // The best sustained turn rate: a faint column across the run of speeds
+  // that holds it, bracketed and labelled in the strip under the X axis --
+  // the low-speed corner where it usually falls is already crowded with
+  // the crossing marker and all three curves.
+  let bestRateBand = "";
+  let bestRateMarker = "";
+  if (bestRate) {
+    const x1 = x(bestRate.ktasMin);
+    const x2 = Math.max(x(bestRate.ktasMax), x1 + 2); // still visible for a single speed
+    const axisY = padTop + plotH;
+    // Centred, between the "100 kt"/"780 kt" tick labels -- the bracket
+    // above it shows where the run actually is.
+    const labelX = padLeft + plotW / 2;
+    bestRateBand =
+      `<rect class="best-rate-band" x="${x1.toFixed(1)}" y="${padTop}" width="${(x2 - x1).toFixed(1)}" height="${plotH}"></rect>`;
+    bestRateMarker =
+      `<line class="best-rate-bracket" x1="${x1.toFixed(1)}" y1="${axisY + 3}" x2="${x2.toFixed(1)}" y2="${axisY + 3}"></line>` +
+      `<text class="best-rate-label" x="${labelX.toFixed(1)}" y="${height - 4}" text-anchor="middle">` +
+      `Best sustained rate: ${phadCells(bestRate.cells)} @ ${ktasRange(bestRate.ktasMin, bestRate.ktasMax, "")}</text>`;
+  }
+
   // The classic aerodynamic corner speed -- purely structural, so it lands
   // wherever max_load reaches combat_safe_load regardless of the sustained
   // curve. Styled distinctly (not blue/red/green, already claimed by the
@@ -408,10 +447,12 @@ function renderSustainedTurnChart(container, points, best, structuralCorner, cur
   container.innerHTML =
     `<svg viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">` +
     axes +
+    bestRateBand +
     `<polyline class="structural-line" points="${pathUntilCap((p) => p.max_load, loadCap, y)}"></polyline>` +
     `<polyline class="sustained-line" points="${pathFor((p) => p.sustained_load)}"></polyline>` +
     `<polyline class="cells-line" points="${cellsPath}"></polyline>` +
     currentStateMarker +
+    bestRateMarker +
     bestMarker +
     structuralCornerMarker +
     `<g class="crosshair hidden">` +
@@ -473,7 +514,8 @@ function wireSustainedTurnChartInteractivity(container, points, scale) {
       `<strong>${Math.round(p.ktas)} kt (${p.speed_fp} FP)</strong>` +
       `<span class="tt-sustained">Sustained: ${wholeLoads(p.sustained_load)}</span><br>` +
       `<span class="tt-structural">Lift-limited: ${wholeLoads(p.max_load)}</span><br>` +
-      `<span class="tt-cells">Turn rate: ${p.max_pullable_cells} PHAD cells</span>`;
+      `<span class="tt-cells">Turn rate: ${p.max_pullable_cells} PHAD cells</span><br>` +
+      `<span class="tt-cells">Sustained rate: ${phadCells(p.sustained_turn_cells)}</span>`;
     tooltip.classList.remove("hidden");
 
     // Flip sides so the tooltip never overflows the chart's edge.
@@ -871,6 +913,18 @@ function addHistoryRow(turnNumber, performance) {
 
 function round1(x) {
   return Math.round(x * 10) / 10;
+}
+
+function phadCells(cells) {
+  return cells === 1 ? "1 cell" : `${cells} cells`;
+}
+
+// "140–480 kt", or just "160 kt" when the run is a single speed. unitGap is
+// the space before "kt" (the chart labels run them together).
+function ktasRange(ktasMin, ktasMax, unitGap) {
+  const lo = Math.round(ktasMin);
+  const hi = Math.round(ktasMax);
+  return lo === hi ? `${lo}${unitGap}kt` : `${lo}\u2013${hi}${unitGap}kt`;
 }
 
 function wholeLoads(load) {

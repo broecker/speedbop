@@ -1,8 +1,8 @@
 # Verification test plan: EM chart calculations vs. the real player aids
 
 The sustained-turn / EM chart feature (`performance.py`: `sustained_load()`,
-`find_best_sustained_turn()`, `find_structural_corner_speed()`,
-`phad_cells_from_load()`) layers new, derived analysis on top of the game's
+`find_best_sustained_turn()`, `find_best_sustained_turn_rate()`,
+`find_structural_corner_speed()`, `phad_cells_from_load()`) layers new, derived analysis on top of the game's
 existing per-turn calculation. Some of it corresponds directly to values a
 player reads off the physical E6B-style slide rule and the printed Aircraft
 Data Card (ADC) tables; some of it (sustained load, corner speed) is purely
@@ -50,6 +50,7 @@ don't apply there.
 | 12 | Sustained load, declining/transonic side | FJ-3M dry, weight 17.4, alt 75, 520kt | sustained_load=6.73 (below the peak; 0 from ~546kt), wing_load=58.0, safe_load=18.9 | Pull 7 loads, expect approximately 520kt after (speedbop: 519.4) -- confirms the peak-and-decline is real, not a bug | Not yet run |
 | 13 | Literature corner speed | FJ-3M, weight 17.4, combat_safe_load=21 | `corner_speed()` at the 485kt state: 246 KEAS (approximately 310 KTAS @ alt 75); EM chart's Corner marker: 350 KTAS; wing_load=58.0, safe_load=18.9 | ADC's stated G rating + slide rule solve | Not yet run |
 | 14 | Sustained x lift-limited crossing ("Sustained" marker) | FJ-3M dry, weight 17.4, alt 75 | approximately 168 KTAS at 4 loads: in whole loads (as the chart shows both curves) sustained and max_load are both 4 from 152 to 168kt, then max_load steps to 5 at 169kt while sustained stays at 4 (precise sustained: 4.63); the app's marker, sampled every 10kt, reads 160kt / 4 loads; wing_load=58.0, safe_load=18.9 | Confirm 4 loads is sustainable (holds speed) and the airframe allows 4 but not 5 loads just below 169kt | Not yet run |
+| 15 | Best sustained turn rate ("Best sustained rate" marker) | FJ-3M dry, weight 17.4, alt 75 | 2 PHAD cells from 140 to 480kt (10kt samples): 3 loads at 140kt (4 FP, lift-limited; sustained 3.76) up to 9 loads at 480kt (12 FP, energy-limited; sustained 9.00); cells from the 2 x load / FP rule of thumb, rounded to nearest; wing_load=58.0, safe_load=18.9 | Pull 3 loads at 140kt and 9 loads at 480kt: each should hold speed (speedbop: 150.5kt and 480.0kt after) and turn 2 cells -- re-check once the real turn-rate formula replaces the rule of thumb | Not yet run |
 
 ## Notes / flags
 
