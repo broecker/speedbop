@@ -7,12 +7,14 @@ import speedbop
 from speedbop import (
     AircraftDataCard,
     AircraftState,
+    DepartedFlightError,
     PerformanceHistory,
     TurnPerformance,
     _bop_tablerow_lookup,
     _dataclass_from_dict,
     calculate_performance,
     gs_from_pulls,
+    max_flying_pulls,
 )
 from chart import IsobarChart, load_isobars
 from factories import REAL_ADC_PATH, REPO_ROOT, make_ab_adc, make_adc, make_state
@@ -925,6 +927,76 @@ def test_performance_history_resolve_turn_passes_through_engine_output_override(
     assert history.current_state.ktas == pytest.approx(
         state.ktas + performance.engine_delta_ktas
     )
+
+
+def test_performance_history_refuses_a_turn_that_departs_flight():
+    # FJ-3M dry at 550kt, alt 75: the wing allows 71 pulls, but 68 would end
+    # the turn at -164 KTAS. The aircraft departs flight, so the turn is
+    # refused and nothing is recorded.
+    state = make_state(adc=AircraftDataCard.from_json(REAL_ADC_PATH), weight=17.4, ktas=550.0, altitude=75)
+    history = PerformanceHistory(state)
+
+    with pytest.raises(DepartedFlightError) as raised:
+        history.resolve_turn(segment_pulls=68, afterburner=False)
+
+    assert history.turns == []
+    assert history.current_state is state
+    assert raised.value.turn.departs_flight
+    assert raised.value.max_flying_pulls == 59
+    assert str(raised.value) == "Departs flight: 68 pulls would end at -164 KTAS -- at most 59 keep it flying."
+
+    # The most it can pull still resolves normally.
+    turn = history.resolve_turn(segment_pulls=59, afterburner=False)
+    assert 0 < turn.new_state.ktas < 20
+    assert history.turns == [turn]
+
+
+def test_a_turn_too_slow_for_any_lift_flies_straight():
+    # Regression test: below about 12 KEAS, q and smash round to 0, so max
+    # load is 0 and pulls clamp to 0 -- but alpha still divided those 0 pulls
+    # by smash 0 and raised, so the turn after a near-departure crashed.
+    state = make_state(adc=AircraftDataCard.from_json(REAL_ADC_PATH), weight=17.4, ktas=12.3, altitude=75)
+    assert state.get_smash() == 0
+
+    turn = calculate_performance(state, segment_pulls=3, afterburner=False)
+
+    assert turn.segment_pulls == 0
+    assert turn.alpha == 0.0
+    assert turn.new_state.ktas > state.ktas
+
+
+def test_turn_departs_flight_at_zero_ktas_or_less():
+    turn = calculate_performance(make_state(ktas=100.0, altitude=0), segment_pulls=0)
+    assert not turn.departs_flight
+
+    for ktas in (0.0, -1.0):
+        stalled = dataclasses.replace(turn, new_state=dataclasses.replace(turn.new_state, ktas=ktas))
+        assert stalled.departs_flight
+
+
+def test_max_flying_pulls_is_the_most_that_still_ends_above_zero():
+    adc = AircraftDataCard.from_json(REAL_ADC_PATH)
+    state = make_state(adc=adc, weight=17.4, ktas=550.0, altitude=75)
+
+    assert max_flying_pulls(state, afterburner=False) == 59
+    # Under max load it's just max load.
+    slower = make_state(adc=adc, weight=17.4, ktas=400.0, altitude=75)
+    assert max_flying_pulls(slower, afterburner=False) == slower.get_max_load()
+
+
+def test_max_flying_pulls_is_none_when_no_pull_keeps_it_flying():
+    # A 10-unit climb at 100kt costs 200kt of speed on its own.
+    state = make_state(ktas=100.0, altitude=0)
+
+    assert max_flying_pulls(state, delta_altitude=10) is None
+
+
+def test_departed_flight_error_says_when_no_pull_keeps_it_flying():
+    state = make_state(ktas=100.0, altitude=0)
+    history = PerformanceHistory(state)
+
+    with pytest.raises(DepartedFlightError, match="no pull keeps it flying"):
+        history.resolve_turn(segment_pulls=0, delta_altitude=10)
 
 
 def test_performance_history_format_joins_every_turn():

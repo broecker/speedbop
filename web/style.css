@@ -181,6 +181,10 @@ main {
   color: var(--danger);
 }
 
+.bottom-action .warning {
+  margin: 0 0 8px;
+}
+
 /* ---------- afterburner toggle ---------- */
 
 .switch-field {
@@ -504,17 +508,19 @@ input:focus {
   font-weight: 600;
 }
 
-/* The best sustained turn rate: a faint column across its run of speeds,
-   in the cells line's color, with a bracket and label under the X axis. */
-#performance-chart .best-rate-band {
-  fill: var(--success);
-  opacity: 0.12;
+/* The best sustained turn rate: a dashed line at its speed and a dot at its
+   rate, in the cells line's color, with a label under the X axis. */
+#performance-chart .best-rate-line {
+  stroke: var(--success);
+  stroke-width: 1;
+  stroke-dasharray: 3 2;
+  opacity: 0.7;
 }
 
-#performance-chart .best-rate-bracket {
-  stroke: var(--success);
-  stroke-width: 2;
-  stroke-linecap: round;
+#performance-chart .best-rate-point {
+  fill: var(--success);
+  stroke: var(--panel);
+  stroke-width: 1;
 }
 
 #performance-chart .best-rate-label {

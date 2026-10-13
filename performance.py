@@ -127,19 +127,35 @@ def sustained_load(state: speedbop.AircraftState, afterburner: bool = True) -> f
     at get_max_load() -- callers wanting the actually achievable sustained
     G take min(sustained_load(), get_max_load()) themselves.
     """
-    smash = state.get_smash()
-    if smash == 0:
-        # No meaningful lift at this speed (q/smash -> 0 as ktas -> 0) --
-        # there's no load, however small, it can sustain.
-        return 0.0
-    net_delta_ktas = (
+    return _load_spending(state, _thrust_minus_form_delta_ktas(state, afterburner))
+
+
+def departure_load(state: speedbop.AircraftState, afterburner: bool = True) -> float:
+    """The load at which one full level turn ends at exactly 0 KTAS: it
+    spends the aircraft's whole speed plus whatever thrust adds back. Any
+    pull at or above it departs flight. The same closed form as
+    sustained_load(), unrounded and not capped at get_max_load().
+    """
+    return _load_spending(state, state.ktas + _thrust_minus_form_delta_ktas(state, afterburner))
+
+
+def _thrust_minus_form_delta_ktas(state: speedbop.AircraftState, afterburner: bool) -> float:
+    """The part of a turn's speed change that doesn't depend on load."""
+    return (
         state.get_engine_delta_ktas(state.get_engine_output(afterburner))
         - state.get_form_delta_ktas()
     )
-    if net_delta_ktas <= 0:
+
+
+def _load_spending(state: speedbop.AircraftState, delta_ktas: float) -> float:
+    """The full-turn load whose induced drag costs exactly delta_ktas."""
+    smash = state.get_smash()
+    if smash == 0 or delta_ktas <= 0:
+        # No meaningful lift at this speed (q/smash -> 0 as ktas -> 0), or
+        # nothing to spend -- no load, however small, fits.
         return 0.0
     k = 100 * state.get_lcs() / (smash * state.get_ids())
-    return math.sqrt(net_delta_ktas / k)
+    return math.sqrt(delta_ktas / k)
 
 
 def turn_degrees(load: float, ktas: float) -> float:
@@ -200,12 +216,16 @@ def sustained_turn_profile(
     for ktas in ktas_values:
         state = speedbop.AircraftState(adc, weight, ktas, altitude)
         speed_fp = speedbop.speed_fp_from_ktas(ktas)
+        departure = departure_load(state, afterburner)
         if fractional:
             sustained = sustained_load(state, afterburner)
             max_load = state.get_lift_limited_load()
+            pullable = min(max_load, departure)
         else:
             sustained = math.floor(sustained_load(state, afterburner))
             max_load = state.get_max_load()
+            # The most whole loads strictly below the departure load.
+            pullable = min(max_load, max(0, math.ceil(departure) - 1))
         points.append(
             speedbop.SustainedTurnPoint(
                 ktas=ktas,
@@ -216,8 +236,10 @@ def sustained_turn_profile(
                 sustained_phad_cells=phad_cells_from_load(sustained, ktas),
                 max_phad_cells=phad_cells_from_load(max_load, ktas),
                 # The most a turn can pull is max_load, sustainable or not
-                # -- spare energy beyond it can't buy a tighter turn.
-                max_pullable_cells=turn_cells(max_load, ktas),
+                # -- spare energy beyond it can't buy a tighter turn -- unless
+                # pulling that much would depart flight.
+                max_pullable_load=pullable,
+                max_pullable_cells=turn_cells(pullable, ktas),
                 sustained_turn_cells=turn_cells(min(sustained, max_load), ktas),
                 engine_output=state.get_engine_output(afterburner),
                 total_drag=state.get_total_drag(),
@@ -271,27 +293,19 @@ def find_best_sustained_turn(
 def find_best_sustained_turn_rate(
     points: list[speedbop.SustainedTurnPoint],
 ) -> speedbop.BestSustainedTurnRate | None:
-    """The highest sustained_turn_cells across the profile and the first
-    (slowest) contiguous run of points holding it, walking the list in the
-    order given (matching sustained_turn_profile()'s ascending-KTAS sweep).
-    The run's ends are sample points, so they're only as fine as the sweep.
+    """The point with the highest sustained_turn_cells, taking the slowest
+    of any that tie -- in whole numbers many speeds tie on whole cells. It's
+    only as fine as the sweep's sample spacing.
 
-    Returns None if no point can hold even one cell.
+    Returns None if no point can hold a turn at all.
     """
-    best_cells = max((p.sustained_turn_cells for p in points), default=0)
-    if best_cells <= 0:
+    best = max(points, key=lambda p: (p.sustained_turn_cells, -p.ktas), default=None)
+    if best is None or best.sustained_turn_cells <= 0:
         return None
-
-    start = next(i for i, p in enumerate(points) if p.sustained_turn_cells == best_cells)
-    end = start
-    while end + 1 < len(points) and points[end + 1].sustained_turn_cells == best_cells:
-        end += 1
-    slowest = points[start]
     return speedbop.BestSustainedTurnRate(
-        cells=best_cells,
-        ktas_min=slowest.ktas,
-        ktas_max=points[end].ktas,
-        load=min(slowest.sustained_load, slowest.max_load),
+        cells=best.sustained_turn_cells,
+        ktas=best.ktas,
+        load=min(best.sustained_load, best.max_load),
     )
 
 

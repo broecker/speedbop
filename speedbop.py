@@ -235,6 +235,12 @@ class TurnPerformance:
         return speed_fp_from_ktas(self.new_state.ktas)
 
     @property
+    def departs_flight(self) -> bool:
+        # The rules don't define a speed of 0 or less: the aircraft departs
+        # flight, so a turn that ends there is invalid.
+        return self.new_state.ktas <= 0
+
+    @property
     def max_alpha(self) -> float:
         return self.old_state.adc.lift.alpha_max
 
@@ -303,7 +309,9 @@ def calculate_performance(
         segment_fp = speed
         load = float(segment_pulls)
 
-    alpha = load / state.get_smash() * state.get_lcs()
+    # No pull makes no alpha -- including at a speed too slow for any lift
+    # (smash 0), where max load is 0 and pulls are already clamped to it.
+    alpha = load / state.get_smash() * state.get_lcs() if load else 0.0
 
     dl = alpha / state.get_ids() * load * 100
     induced_delta_ktas = dl / speed * segment_fp
@@ -349,6 +357,48 @@ def calculate_performance(
     )
 
 
+def max_flying_pulls(
+    state: AircraftState,
+    segment_fp: int | None = None,
+    delta_altitude: int = 0,
+    engine_output: float | None = None,
+    afterburner: bool = True,
+) -> int | None:
+    """The most whole pulls, up to max load, whose turn with these inputs
+    doesn't depart flight -- or None if even no pull at all keeps the
+    aircraft flying (e.g. a climb steeper than its speed can pay for)."""
+    for pulls in range(state.get_max_load(), -1, -1):
+        turn = calculate_performance(
+            state,
+            pulls,
+            segment_fp=segment_fp,
+            delta_altitude=delta_altitude,
+            engine_output=engine_output,
+            afterburner=afterburner,
+        )
+        if not turn.departs_flight:
+            return pulls
+    return None
+
+
+class DepartedFlightError(ValueError):
+    """Raised by PerformanceHistory.resolve_turn() for a turn that would end
+    at 0 KTAS or less: the aircraft departs flight, so the turn is refused
+    rather than recorded."""
+
+    def __init__(self, turn: TurnPerformance, max_flying_pulls: int | None):
+        self.turn = turn
+        self.max_flying_pulls = max_flying_pulls
+        if max_flying_pulls is None:
+            advice = "no pull keeps it flying"
+        else:
+            advice = f"at most {max_flying_pulls} keep it flying"
+        super().__init__(
+            f"Departs flight: {turn.segment_pulls:g} pulls would end at "
+            f"{turn.new_state.ktas:.0f} KTAS -- {advice}."
+        )
+
+
 @dataclass(frozen=True)
 class SustainedTurnPoint:
     """One point on a sustained-turn-performance sweep: what an aircraft can
@@ -364,8 +414,11 @@ class SustainedTurnPoint:
     max_load: float
     sustained_phad_cells: float
     max_phad_cells: float
-    # PHAD cells from max_load: the fastest turn possible at this speed,
-    # even if it bleeds energy. Rounded down to whole cells with
+    # The most a turn can pull: max_load, or less where pulling that much
+    # would end the turn at 0 KTAS or less and depart flight.
+    max_pullable_load: float
+    # PHAD cells from max_pullable_load: the fastest turn possible at this
+    # speed, even if it bleeds energy. Rounded down to whole cells with
     # fractional=False, like sustained_turn_cells.
     max_pullable_cells: float
     # PHAD cells this speed can turn indefinitely: the cells from the lower
@@ -397,17 +450,14 @@ class BestSustainedTurn:
 
 @dataclass(frozen=True)
 class BestSustainedTurnRate:
-    """The highest PHAD turn rate a performance.sustained_turn_profile()
-    sweep can hold indefinitely, and the slowest run of speeds that holds it
-    (slower turns the same cells in a tighter radius). load is what has to be
-    pulled at ktas_min; faster speeds in the run need more load for the same
-    cells. With unrounded loads and cells the run is usually a single speed;
-    whole numbers make many speeds tie.
+    """The single best sustained turn in a performance.sustained_turn_profile()
+    sweep: the most PHAD cells any speed can hold indefinitely, at the
+    slowest speed that holds them (the same cells at a lower speed turn a
+    tighter circle), and the load to pull there.
     """
 
     cells: float
-    ktas_min: float
-    ktas_max: float
+    ktas: float
     load: float
 
 
@@ -451,14 +501,15 @@ class PerformanceHistory:
         engine_output: float | None = None,
         afterburner: bool = True,
     ) -> TurnPerformance:
-        turn = calculate_performance(
-            self.current_state,
-            segment_pulls,
+        inputs = dict(
             segment_fp=segment_fp,
             delta_altitude=delta_altitude,
             engine_output=engine_output,
             afterburner=afterburner,
         )
+        turn = calculate_performance(self.current_state, segment_pulls, **inputs)
+        if turn.departs_flight:
+            raise DepartedFlightError(turn, max_flying_pulls(self.current_state, **inputs))
         self.turns.append(turn)
         return turn
 

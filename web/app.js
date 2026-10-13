@@ -249,8 +249,7 @@ function updatePerformanceScreen() {
   const bestRate = bestRateProxy
     ? {
         cells: bestRateProxy.cells,
-        ktasMin: bestRateProxy.ktas_min,
-        ktasMax: bestRateProxy.ktas_max,
+        ktas: bestRateProxy.ktas,
         load: bestRateProxy.load,
       }
     : null;
@@ -282,8 +281,8 @@ function updatePerformanceScreen() {
   );
   if (bestRate) {
     captionParts.push(
-      `best sustained rate: ${formatCells(bestRate.cells)} @ ${ktasRange(bestRate.ktasMin, bestRate.ktasMax, " ")} ` +
-      `(${formatLoads(bestRate.load, fractional)} at ${Math.round(bestRate.ktasMin)} kt)`
+      `best sustained rate: ${formatCells(bestRate.cells)} @ ${Math.round(bestRate.ktas)} kt ` +
+      `(${formatLoads(bestRate.load, fractional)})`
     );
   }
   if (structuralCorner) {
@@ -388,25 +387,23 @@ function renderSustainedTurnChart(container, points, best, bestRate, structuralC
       `Sustained: ${Math.round(best.ktas)}kt / ${formatLoads(best.load, fractional)}</text>`;
   }
 
-  // The best sustained turn rate: a faint column across the run of speeds
-  // that holds it, bracketed and labelled in the strip under the X axis --
-  // the low-speed corner where it usually falls is already crowded with
-  // the crossing marker and all three curves.
-  let bestRateBand = "";
+  // The best sustained turn rate: a line at its speed (drawn under the
+  // curves), a dot at its rate on the cells axis, and a label in the strip
+  // under the X axis -- the low-speed corner is often crowded with the
+  // crossing marker and all three curves.
+  let bestRateLine = "";
   let bestRateMarker = "";
   if (bestRate) {
-    const x1 = x(bestRate.ktasMin);
-    const x2 = Math.max(x(bestRate.ktasMax), x1 + 2); // still visible for a single speed
-    const axisY = padTop + plotH;
-    // Centred, between the "100 kt"/"780 kt" tick labels -- the bracket
-    // above it shows where the run actually is.
-    const labelX = padLeft + plotW / 2;
-    bestRateBand =
-      `<rect class="best-rate-band" x="${x1.toFixed(1)}" y="${padTop}" width="${(x2 - x1).toFixed(1)}" height="${plotH}"></rect>`;
+    const bx = x(bestRate.ktas).toFixed(1);
+    bestRateLine =
+      `<line class="best-rate-line" x1="${bx}" y1="${padTop}" x2="${bx}" y2="${padTop + plotH + 3}"></line>`;
     bestRateMarker =
-      `<line class="best-rate-bracket" x1="${x1.toFixed(1)}" y1="${axisY + 3}" x2="${x2.toFixed(1)}" y2="${axisY + 3}"></line>` +
-      `<text class="best-rate-label" x="${labelX.toFixed(1)}" y="${height - 4}" text-anchor="middle">` +
-      `Best sustained rate: ${formatCells(bestRate.cells)} @ ${ktasRange(bestRate.ktasMin, bestRate.ktasMax, "")}</text>`;
+      (bestRate.cells <= cellsMax
+        ? `<circle class="best-rate-point" cx="${bx}" cy="${y2(bestRate.cells).toFixed(1)}" r="3"></circle>`
+        : "") +
+      // Centred, between the "100 kt"/"780 kt" tick labels.
+      `<text class="best-rate-label" x="${(padLeft + plotW / 2).toFixed(1)}" y="${height - 4}" text-anchor="middle">` +
+      `Best sustained rate: ${formatCells(bestRate.cells)} @ ${Math.round(bestRate.ktas)}kt</text>`;
   }
 
   // The classic aerodynamic corner speed -- purely structural, so it lands
@@ -448,7 +445,7 @@ function renderSustainedTurnChart(container, points, best, bestRate, structuralC
   container.innerHTML =
     `<svg viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">` +
     axes +
-    bestRateBand +
+    bestRateLine +
     `<polyline class="structural-line" points="${pathUntilCap((p) => p.max_load, loadCap, y)}"></polyline>` +
     `<polyline class="sustained-line" points="${pathFor((p) => p.sustained_load)}"></polyline>` +
     `<polyline class="cells-line" points="${cellsPath}"></polyline>` +
@@ -517,6 +514,9 @@ function wireSustainedTurnChartInteractivity(container, points, scale, fractiona
       `<strong>${Math.round(p.ktas)} kt (${p.speed_fp} FP)</strong>` +
       `<span class="tt-sustained">Sustained: ${formatLoads(p.sustained_load, fractional)}</span><br>` +
       `<span class="tt-structural">Lift-limited: ${formatLoads(p.max_load, fractional)}</span><br>` +
+      (p.max_pullable_load < p.max_load
+        ? `<span class="tt-structural">Departs flight above ${formatLoads(p.max_pullable_load, fractional)}</span><br>`
+        : "") +
       `<span class="tt-cells">Turn rate: ${round1(p.max_pullable_cells)} PHAD cells</span><br>` +
       `<span class="tt-cells">Sustained rate: ${formatCells(p.sustained_turn_cells)}</span>`;
     tooltip.classList.remove("hidden");
@@ -925,14 +925,6 @@ function formatCells(cells) {
   return `${n} ${n === 1 ? "cell" : "cells"}`;
 }
 
-// "140–480 kt", or just "160 kt" when the run is a single speed. unitGap is
-// the space before "kt" (the chart labels run them together).
-function ktasRange(ktasMin, ktasMax, unitGap) {
-  const lo = Math.round(ktasMin);
-  const hi = Math.round(ktasMax);
-  return lo === hi ? `${lo}${unitGap}kt` : `${lo}\u2013${hi}${unitGap}kt`;
-}
-
 function wholeLoads(load) {
   const n = Math.floor(load);
   return `${n} ${n === 1 ? "load" : "loads"}`;
@@ -955,7 +947,19 @@ document.getElementById("resolve-turn-btn").addEventListener("click", guarded("C
   const engineOutput = engineOutputRaw === "" ? null : parseFloat(engineOutputRaw);
   const afterburner = afterburnerEnabled();
 
-  const performance = history.resolve_turn(pulls, segmentFp, deltaAltitude, engineOutput, afterburner);
+  const warningEl = document.getElementById("turn-warning");
+  let performance;
+  try {
+    performance = history.resolve_turn(pulls, segmentFp, deltaAltitude, engineOutput, afterburner);
+  } catch (err) {
+    // A turn ending at 0 KTAS or less departs flight: refused, not recorded.
+    if (err.type !== "DepartedFlightError") throw err;
+    const match = /DepartedFlightError: (.*)$/m.exec(err.message);
+    warningEl.textContent = `⚠ ${match ? match[1] : "This turn departs flight."}`;
+    warningEl.classList.remove("hidden");
+    return;
+  }
+  warningEl.classList.add("hidden");
 
   renderState(history.current_state);
   renderBreakdown(performance);

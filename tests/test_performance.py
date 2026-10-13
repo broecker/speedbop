@@ -12,6 +12,7 @@ from performance import (
     TROPOPAUSE_FT,
     corner_speed,
     density_ratio,
+    departure_load,
     engine_scale,
     find_best_sustained_turn,
     find_best_sustained_turn_rate,
@@ -118,6 +119,31 @@ def test_sustained_load_afterburner_increases_it():
 
 
 # ---------------------------------------------------------------------------
+# departure_load
+# ---------------------------------------------------------------------------
+
+def test_departure_load_ends_the_turn_at_zero_ktas():
+    # Cross-checks the closed form against calculate_performance(), like
+    # the sustained_load test above. 550kt is fast enough that the wing
+    # could pull more (71 loads) than the speed can pay for.
+    state = AircraftState(AircraftDataCard.from_json(REAL_ADC_PATH), weight=17.4, ktas=550.0, altitude=75)
+    load = departure_load(state, afterburner=False)
+    assert load < state.get_max_load()
+
+    turn = calculate_performance(state, segment_pulls=load, afterburner=False)
+
+    assert turn.new_state.ktas == pytest.approx(0.0, abs=0.01)
+
+
+def test_departure_load_is_above_sustained_load():
+    # A sustained turn keeps its speed, so it's always well short of
+    # spending all of it.
+    state = make_state(adc=make_ab_adc(), ktas=325.0, altitude=0)
+
+    assert departure_load(state) > sustained_load(state) > 0
+
+
+# ---------------------------------------------------------------------------
 # PHAD cells / sustained_turn_profile
 # ---------------------------------------------------------------------------
 
@@ -189,7 +215,9 @@ def test_sustained_turn_profile_is_unrounded_by_default():
 
     assert point.sustained_load == pytest.approx(expected_sustained)
     assert point.max_load == pytest.approx(expected_max)
-    assert point.max_pullable_cells == pytest.approx(phad_cells_from_load(expected_max, state.ktas))
+    expected_pullable = min(expected_max, departure_load(state))
+    assert point.max_pullable_load == pytest.approx(expected_pullable)
+    assert point.max_pullable_cells == pytest.approx(phad_cells_from_load(expected_pullable, state.ktas))
     assert point.sustained_turn_cells == pytest.approx(
         phad_cells_from_load(min(expected_sustained, expected_max), state.ktas)
     )
@@ -218,8 +246,11 @@ def test_sustained_turn_profile_in_whole_numbers_matches_calling_aircraft_state_
     assert point.max_phad_cells == pytest.approx(
         phad_cells_from_load(state.get_max_load(), state.ktas)
     )
+    # Whole loads strictly below the departure load.
+    expected_pullable = min(state.get_max_load(), math.ceil(departure_load(state)) - 1)
+    assert point.max_pullable_load == expected_pullable
     assert point.max_pullable_cells == whole_phad_cells(
-        phad_cells_from_load(state.get_max_load(), state.ktas)
+        phad_cells_from_load(expected_pullable, state.ktas)
     )
     assert point.sustained_turn_cells == whole_phad_cells(
         phad_cells_from_load(min(expected_sustained, state.get_max_load()), state.ktas)
@@ -289,6 +320,31 @@ def test_turn_rate_holds_across_the_j6c_fp_step():
     assert [p.max_pullable_cells for p in whole] == [2, 2, 2, 2]
 
 
+def test_sustained_turn_profile_caps_the_turn_rate_where_max_load_departs_flight():
+    # FJ-3M dry at alt 75: at 550kt the wing allows 71 loads, but anything
+    # from 59.7 up ends the turn at 0 KTAS or less. At 400kt the wing gives
+    # out first.
+    adc = AircraftDataCard.from_json(REAL_ADC_PATH)
+    state = AircraftState(adc, weight=17.4, ktas=550.0, altitude=75)
+    fast, slow = sustained_turn_profile(
+        adc, weight=17.4, altitude=75, ktas_values=[550.0, 400.0], afterburner=False
+    )
+    fast_whole, slow_whole = sustained_turn_profile(
+        adc, weight=17.4, altitude=75, ktas_values=[550.0, 400.0], afterburner=False, fractional=False
+    )
+
+    assert fast.max_pullable_load == pytest.approx(departure_load(state, afterburner=False))
+    assert fast.max_pullable_load < fast.max_load
+    assert fast.max_pullable_cells == pytest.approx(phad_cells_from_load(fast.max_pullable_load, 550.0))
+    assert slow.max_pullable_load == pytest.approx(slow.max_load)
+
+    # Whole loads: 59 still flies, 60 doesn't.
+    assert fast_whole.max_pullable_load == 59
+    assert calculate_performance(state, 59, afterburner=False).new_state.ktas > 0
+    assert calculate_performance(state, 60, afterburner=False).new_state.ktas <= 0
+    assert slow_whole.max_pullable_load == slow_whole.max_load
+
+
 def test_sustained_turn_profile_speed_fp_uses_raw_ktas_not_keas():
     # Regression test: speed_fp used to be computed from state.get_keas()
     # (matching calculate_performance()'s own internal convention), but
@@ -337,6 +393,7 @@ def _sustained_point(ktas, sustained_load, max_load, sustained_turn_cells=None):
         sustained_load=sustained_load, max_load=max_load,
         sustained_phad_cells=sustained_phad_cells,
         max_phad_cells=max_phad_cells,
+        max_pullable_load=max_load,
         max_pullable_cells=whole_phad_cells(max_phad_cells),
         sustained_turn_cells=sustained_turn_cells,
         engine_output=0.0, total_drag=0.0,
@@ -472,7 +529,7 @@ def test_find_best_sustained_turn_on_a_real_profile():
 # find_best_sustained_turn_rate
 # ---------------------------------------------------------------------------
 
-def test_find_best_sustained_turn_rate_returns_the_slowest_run_at_the_best_rate():
+def test_find_best_sustained_turn_rate_returns_the_slowest_speed_at_the_best_rate():
     # Cells given directly -- the finder only reads them.
     points = [
         _sustained_point(100.0, sustained_load=4, max_load=2, sustained_turn_cells=1),
@@ -486,9 +543,8 @@ def test_find_best_sustained_turn_rate_returns_the_slowest_run_at_the_best_rate(
 
     assert isinstance(best, BestSustainedTurnRate)
     assert best.cells == 2
-    assert best.ktas_min == pytest.approx(110.0)
-    assert best.ktas_max == pytest.approx(120.0)
-    # The lower of sustained and max load at the run's slowest speed.
+    assert best.ktas == pytest.approx(110.0)
+    # The lower of sustained and max load there.
     assert best.load == 4
 
 
@@ -508,7 +564,7 @@ def test_find_best_sustained_turn_rate_can_differ_from_the_crossing():
     assert crossing.ktas == pytest.approx(110.0)
     assert points[1].sustained_turn_cells == 1
     assert best.cells == 2
-    assert best.ktas_min == pytest.approx(200.0)
+    assert best.ktas == pytest.approx(200.0)
 
 
 def test_find_best_sustained_turn_rate_returns_none_when_nothing_holds_a_cell():
@@ -530,7 +586,8 @@ def test_find_best_sustained_turn_rate_on_the_real_fj3m_in_whole_numbers():
 
     best = find_best_sustained_turn_rate(points)
 
-    assert best == BestSustainedTurnRate(cells=1, ktas_min=160.0, ktas_max=480.0, load=4)
+    # 1 whole cell holds from 160 to 480kt; the slowest turns it tightest.
+    assert best == BestSustainedTurnRate(cells=1, ktas=160.0, load=4)
 
 
 def test_find_best_sustained_turn_rate_on_the_real_fj3m_unrounded():
@@ -545,7 +602,7 @@ def test_find_best_sustained_turn_rate_on_the_real_fj3m_unrounded():
     best = find_best_sustained_turn_rate(points)
 
     assert best.cells == pytest.approx(1.70, abs=0.01)
-    assert best.ktas_min == best.ktas_max == pytest.approx(320.0)
+    assert best.ktas == pytest.approx(320.0)
     assert best.load == pytest.approx(8.05, abs=0.01)
 
 

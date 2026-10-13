@@ -9,7 +9,7 @@
      keep running behind a code fix pushed to main, since GitHub Pages sits
      behind a CDN that doesn't invalidate instantly and this project has no
      build step to fingerprint asset URLs automatically. -->
-<link rel="stylesheet" href="web/style.css?v=3">
+<link rel="stylesheet" href="web/style.css?v=4">
 </head>
 <body>
 
@@ -199,6 +199,7 @@
     </details>
 
     <div class="bottom-action">
+      <p id="turn-warning" class="warning hidden" role="alert"></p>
       <button type="button" id="resolve-turn-btn" class="primary-btn">Calculate Turn Performance</button>
     </div>
 
@@ -217,6 +218,6 @@
 </section>
 
 <script src="https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.js"></script>
-<script type="module" src="web/app.js?v=15"></script>
+<script type="module" src="web/app.js?v=16"></script>
 </body>
 </html>

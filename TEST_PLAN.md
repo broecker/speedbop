@@ -24,6 +24,8 @@ method.
   structural G rating directly.
 - **Turn rate (15-16)** -- fly the load as a level turn and count the
   PHAD cells turned.
+- **Departing flight (17)** -- run the turn procedure on either side of
+  the limit and confirm the larger pull ends at 0 KTAS or less.
 
 Every scenario below also lists **wing loading** (`get_wing_load()`) and
 **safe load** (`get_safe_load()`) as intermediate values, since both feed
@@ -52,8 +54,9 @@ don't apply there.
 | 12 | Sustained load, declining/transonic side | FJ-3M dry, weight 17.4, alt 75, 520kt | sustained_load=6.73 (below the peak; 0 from ~546kt), wing_load=58.0, safe_load=18.9 | Pull 7 loads, expect approximately 520kt after (speedbop: 519.4) -- confirms the peak-and-decline is real, not a bug | Not yet run |
 | 13 | Literature corner speed | FJ-3M, weight 17.4, combat_safe_load=21 | `corner_speed()` at the 485kt state: 246 KEAS (approximately 310 KTAS @ alt 75); EM chart's Corner marker: 350 KTAS; wing_load=58.0, safe_load=18.9 | ADC's stated G rating + slide rule solve | Not yet run |
 | 14 | Sustained x lift-limited crossing ("Sustained" marker) | FJ-3M dry, weight 17.4, alt 75 | approximately 168 KTAS at 4 loads: in whole loads (as the chart shows both curves) sustained and max_load are both 4 from 152 to 168kt, then max_load steps to 5 at 169kt while sustained stays at 4 (precise sustained: 4.63); the app's marker, sampled every 10kt, reads 160kt / 4 loads with fractional loads off, and 157kt / 4.2 loads with them on (the default); wing_load=58.0, safe_load=18.9 | Confirm 4 loads is sustainable (holds speed) and the airframe allows 4 but not 5 loads just below 169kt | Not yet run |
-| 15 | Best sustained turn rate ("Best sustained rate" marker) | FJ-3M dry, weight 17.4, alt 75 | Fractional loads on (default): 1.70 cells @ 320kt, 8.05 loads (10kt samples) -- the rate is nearly flat from 250 to 340kt (1.67-1.70 cells), so E6B rounding picks the peak; at 1kt resolution it's 1.705 cells @ 297kt. Fractional loads off: 1 PHAD cell from 160 to 480kt (10kt samples): 4 loads at 160kt (lift-limited; sustained 4.22) up to 9 loads at 480kt (energy-limited; sustained 9.00); wing_load=58.0, safe_load=18.9 | Pull 4 loads at 160kt and 9 loads at 480kt: each should hold speed (speedbop: 162.9kt and 480.0kt after) and turn 1 cell (36.1 and 38.6 degrees) | Not yet run |
+| 15 | Best sustained turn rate ("Best sustained rate" marker) | FJ-3M dry, weight 17.4, alt 75 | Fractional loads on (default): 1.70 cells @ 320kt, 8.05 loads (10kt samples) -- the rate is nearly flat from 250 to 340kt (1.67-1.70 cells), so E6B rounding picks the peak; at 1kt resolution it's 1.705 cells @ 297kt. Fractional loads off: 1 cell @ 160kt, 4 loads -- the slowest of the speeds holding 1 whole cell, which runs from 160kt (4 loads, lift-limited; sustained 4.22) to 480kt (9 loads, energy-limited; sustained 9.00); wing_load=58.0, safe_load=18.9 | Pull 4 loads at 160kt and 9 loads at 480kt: each should hold speed (speedbop: 162.9kt and 480.0kt after) and turn 1 cell (36.1 and 38.6 degrees) | Not yet run |
 | 16 | Level-turn rate (PHAD cells) | 9 loads (3 G) at 300 KTAS | 61.8 degrees in a 6s turn = 2.06 cells, 2 whole cells: turn rate = g x sqrt(G^2 - 1) / true airspeed, with 1 G holding the aircraft up; the 1091 x tan(bank) / KTAS pilot's rule gives the same | A played level turn, or the PHAD itself | Not yet run |
+| 17 | Departing flight | FJ-3M dry, weight 17.4, alt 75, 550kt | max_load=71, but a full turn ends at 0 KTAS at 59.7 loads (`departure_load()`): 68 pulls would end at -164kt and is refused; 59 pulls ends at 12.3kt, 60 at -6.0kt; the EM chart's turn rate stops following the lift limit there (from about 500kt at this weight and altitude) | Slide rule: pull 59 and 60 and confirm 60 ends at 0 KTAS or less | Not yet run |
 
 ## Notes / flags
 
