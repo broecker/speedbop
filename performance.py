@@ -181,9 +181,9 @@ def sustained_turn_profile(
                 max_load=max_load,
                 sustained_phad_cells=sustained_phad_cells,
                 max_phad_cells=max_phad_cells,
-                # Whichever of the two turn rates is actually achievable at
-                # this speed, as a whole cell count.
-                max_pullable_cells=round_phad_cells(max(sustained_phad_cells, max_phad_cells)),
+                # The most a turn can pull is max_load, sustainable or not
+                # -- spare energy beyond it can't buy a tighter turn.
+                max_pullable_cells=round_phad_cells(max_phad_cells),
                 sustained_turn_cells=round_phad_cells(
                     phad_cells_from_load(min(whole_sustained_load, max_load), speed_fp)
                 ),

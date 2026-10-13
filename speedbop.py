@@ -361,6 +361,8 @@ class SustainedTurnPoint:
     max_load: int
     sustained_phad_cells: float
     max_phad_cells: float
+    # Whole PHAD cells from max_load: the fastest turn possible at this
+    # speed, even if it bleeds energy.
     max_pullable_cells: int
     # Whole PHAD cells this speed can turn indefinitely: the cells from the
     # lower of sustained_load and max_load, since a load above either one
