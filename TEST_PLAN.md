@@ -50,7 +50,7 @@ don't apply there.
 | 8 | Full turn resolution, AB | Swift Mk5, weight 15.8, alt 75, 400kt, 15 pulls, dAlt=0, AB on | KEAS=317, Q=34.1, Smash=7.1, Mach=0.65 (0.649 unrounded), max_load=32, LCS/IDS=5.6/255, alpha=11.83, induced dKTAS=69.6, form drag=25 (dKTAS 17.8), engine output=61.2 / engine scale 1.334 = base 45.9 (dKTAS 45.9, at combat weight), new KTAS=358.5; wing_load=47.9, safe_load=23.0 | Manual slide-rule turn, AB engine table | **Pass** -- end speed 359 vs 358.5 (+0.1%); see notes below |
 | 9 | Near-stall regime: lift collapses faster than energy margin | FJ-3M dry, weight 17.4, alt 75, 65kt | max_load=0, sustained_load=2.11, wing_load=58.0, safe_load=18.9 | Slide rule (confirm no G available near stall regardless of thrust) | **Pass** -- no whole load available (manual 0.25, speedbop 0); readings at the scale minimum, see note below |
 | 10 | Sustained load, rising side | FJ-3M dry, weight 17.4, alt 75, 250kt | sustained_load=6.48, wing_load=58.0, safe_load=18.9 | Pull 6 loads for one turn, expect approximately 250kt after (speedbop: 253.7) | **Pass** -- end speed 252 vs 253.7 (-0.7%); two slips, see notes below |
-| 11 | Sustained load, at the peak | FJ-3M dry, weight 17.4, alt 75, 445kt | sustained_load=10.22 (curve's max, on the mach-0.72 table breakpoint), wing_load=58.0, safe_load=18.9 | Pull 10 loads, expect approximately 445kt after (speedbop: 445.9) | Not yet run |
+| 11 | Sustained load, at the peak | FJ-3M dry, weight 17.4, alt 75, 445kt | sustained_load=10.22 (curve's max, on the mach-0.72 table breakpoint), wing_load=58.0, safe_load=18.9 | Pull 10 loads, expect approximately 445kt after (speedbop: 445.9) | **Pass** -- end speed 445 vs 445.9 (-0.2%); smash read 4% high, see notes below |
 | 12 | Sustained load, declining/transonic side | FJ-3M dry, weight 17.4, alt 75, 520kt | sustained_load=6.73 (below the peak; 0 from ~546kt), wing_load=58.0, safe_load=18.9 | Pull 7 loads, expect approximately 520kt after (speedbop: 519.4) -- confirms the peak-and-decline is real, not a bug | Not yet run |
 | 13 | Literature corner speed | FJ-3M, weight 17.4, combat_safe_load=21 | `corner_speed()` at the 485kt state: 246 KEAS (approximately 310 KTAS @ alt 75); EM chart's Corner marker: 350 KTAS; wing_load=58.0, safe_load=18.9 | ADC's stated G rating + slide rule solve | Not yet run |
 | 14 | Sustained x lift-limited crossing ("Sustained" marker) | FJ-3M dry, weight 17.4, alt 75 | approximately 168 KTAS at 4 loads: in whole loads (as the chart shows both curves) sustained and max_load are both 4 from 152 to 168kt, then max_load steps to 5 at 169kt while sustained stays at 4 (precise sustained: 4.63); the app's marker, sampled every 10kt, reads 160kt / 4 loads with fractional loads off, and 157kt / 4.2 loads with them on (the default); wing_load=58.0, safe_load=18.9 | Confirm 4 loads is sustainable (holds speed) and the airframe allows 4 but not 5 loads just below 169kt | Not yet run |
@@ -192,6 +192,25 @@ don't apply there.
     step-wise table amplifying a 0.8% reading difference, not a calibration
     error. A turn scenario a few knots clear of a row boundary would make a
     cleaner end-to-end check.
+- **#11 verified 2026-10, pass**: manual read KEAS=352 (353, -0.3%), Q=42
+  (42.2, -0.5%), Mach=0.70 (0.723 unrounded; both pick the 0.72 lift and
+  drag rows, LCS 4.7 / IDS 328 / drag 19), Smash=7.6 (7.3, +4.1%),
+  max_load=36.4 (34.8 unrounded, +4.6%), alpha=6.2 (6.44, -3.7%), induced
+  dKTAS=19 (19.6, -3.2%), form dKTAS=15 (13.9), engine output=47 (47.8,
+  -1.7%) -> base 37 (38.1, -2.9%; scale read 1.27 vs 1.255) -> engine
+  dKTAS 34 (34.4, -1.1%). End speed 445 vs 445.9 (-0.2%): 10 loads holds
+  speed at the sustained peak, as predicted.
+  - *Smash slipped on its own step*: unlike #1/#2, it doesn't follow from
+    the pass's Q -- 10 x 42 / 58 = 7.24 -- and the smash scale matches
+    `10*q/wl` exactly across all 38 calibration readings, so this is a
+    reading slip rather than a calibration gap. Max load, alpha and induced
+    follow from it (with smash 7.6 the formulas give 36.2 / 6.18 / 18.9),
+    and the same smash raises form drag (14.4), so the errors largely
+    cancel in the end speed.
+  - *First pass at altitude since the standard-atmosphere switch*: KEAS
+    and Q agree within 0.5%, where manual KEAS at alt 75 used to read
+    1.2-1.9% above the old exponential -- an independent check of the
+    recalibration.
 - **#9** looks backwards at first glance (`max_load=0` while
   `sustained_load=2.11`), but it's expected: near stall, available lift
   collapses faster than the energy margin does, so structure (not thrust)
