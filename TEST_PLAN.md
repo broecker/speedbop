@@ -51,7 +51,7 @@ don't apply there.
 | 9 | Near-stall regime: lift collapses faster than energy margin | FJ-3M dry, weight 17.4, alt 75, 65kt | max_load=0, sustained_load=2.11, wing_load=58.0, safe_load=18.9 | Slide rule (confirm no G available near stall regardless of thrust) | **Pass** -- no whole load available (manual 0.25, speedbop 0); readings at the scale minimum, see note below |
 | 10 | Sustained load, rising side | FJ-3M dry, weight 17.4, alt 75, 250kt | sustained_load=6.48, wing_load=58.0, safe_load=18.9 | Pull 6 loads for one turn, expect approximately 250kt after (speedbop: 253.7) | **Pass** -- end speed 252 vs 253.7 (-0.7%); two slips, see notes below |
 | 11 | Sustained load, at the peak | FJ-3M dry, weight 17.4, alt 75, 445kt | sustained_load=10.22 (curve's max, on the mach-0.72 table breakpoint), wing_load=58.0, safe_load=18.9 | Pull 10 loads, expect approximately 445kt after (speedbop: 445.9) | **Pass** -- end speed 445 vs 445.9 (-0.2%); smash read 4% high, see notes below |
-| 12 | Sustained load, declining/transonic side | FJ-3M dry, weight 17.4, alt 75, 520kt | sustained_load=6.73 (below the peak; 0 from ~546kt), wing_load=58.0, safe_load=18.9 | Pull 7 loads, expect approximately 520kt after (speedbop: 519.4) -- confirms the peak-and-decline is real, not a bug | Not yet run |
+| 12 | Sustained load, declining/transonic side | FJ-3M dry, weight 17.4, alt 75, 520kt | sustained_load=6.73 (below the peak; 0 from ~546kt), wing_load=58.0, safe_load=18.9 | Pull 7 loads, expect approximately 520kt after (speedbop: 519.4) -- confirms the peak-and-decline is real, not a bug | **Pass with two slips** -- the pass read 456, but its own terms give 519.9 vs 519.4 (+0.1%) with induced drag and engine scaling corrected, see notes below |
 | 13 | Literature corner speed | FJ-3M, weight 17.4, combat_safe_load=21 | `corner_speed()` at the 485kt state: 246 KEAS (approximately 310 KTAS @ alt 75); EM chart's Corner marker: 350 KTAS; wing_load=58.0, safe_load=18.9 | ADC's stated G rating + slide rule solve | Not yet run |
 | 14 | Sustained x lift-limited crossing ("Sustained" marker) | FJ-3M dry, weight 17.4, alt 75 | approximately 168 KTAS at 4 loads: in whole loads (as the chart shows both curves) sustained and max_load are both 4 from 152 to 168kt, then max_load steps to 5 at 169kt while sustained stays at 4 (precise sustained: 4.63); the app's marker, sampled every 10kt, reads 160kt / 4 loads with fractional loads off, and 157kt / 4.2 loads with them on (the default); wing_load=58.0, safe_load=18.9 | Confirm 4 loads is sustainable (holds speed) and the airframe allows 4 but not 5 loads just below 169kt | Not yet run |
 | 15 | Best sustained turn rate ("Best sustained rate" marker) | FJ-3M dry, weight 17.4, alt 75 | Fractional loads on (default): 1.70 cells @ 320kt, 8.05 loads (10kt samples) -- the rate is nearly flat from 250 to 340kt (1.67-1.70 cells), so E6B rounding picks the peak; at 1kt resolution it's 1.705 cells @ 297kt. Fractional loads off: 1 cell @ 160kt, 4 loads -- the slowest of the speeds holding 1 whole cell, which runs from 160kt (4 loads, lift-limited; sustained 4.22) to 480kt (9 loads, energy-limited; sustained 9.00); wing_load=58.0, safe_load=18.9 | Pull 4 loads at 160kt and 9 loads at 480kt: each should hold speed (speedbop: 162.9kt and 480.0kt after) and turn 1 cell (36.1 and 38.6 degrees) | Not yet run |
@@ -211,6 +211,27 @@ don't apply there.
     and Q agree within 0.5%, where manual KEAS at alt 75 used to read
     1.2-1.9% above the old exponential -- an independent check of the
     recalibration.
+- **#12 verified 2026-10, pass with two slips**: manual read wing_load=58 /
+  safe_load=19 (match), KEAS=410 (412, -0.5%), Mach=0.84 (0.844
+  unrounded; both pick the 0.84 lift row, LCS 3.8 / IDS 232, and the 0.85
+  drag row, drag 29), Smash=9.8 (9.9, -1.0%), alpha=2.7 (2.69), form
+  dKTAS=28 (28.7, -2.5%), engine output=45 (44.8) -> base 40 (40.1). The
+  pass's end speed of 456 came from two slips, not a disagreement:
+  - *Induced dKTAS 81*: alpha 2.7 x 7 loads x 100 / IDS 232 = 8.1
+    (speedbop 8.11) -- a decimal slip; the slide rule doesn't show the
+    decimal point. #7, #8, #10 and #11 all read induced drag on this same
+    formula within 4%.
+  - *Engine dKTAS 45*: base 40 x combat / current weight (15.7 / 17.4) =
+    36.1 (speedbop 36.2), scaled down as in #7 and #11; 45 is what the
+    ratio gives upside down (40 x 17.4 / 15.7 = 44.3).
+
+  With both corrected, the pass's own terms give 520 - 28 - 8.1 + 36.1 =
+  519.9 vs speedbop's 519.4 (+0.1%): 7 loads holds speed on the transonic
+  side, so the decline after the 445kt peak is real.
+  - *Half a knot from a lift-row step*: speedbop's KEAS 412.5 rounds to
+    412; at 413 Mach rounds to 0.85 and picks the 0.90 lift row (LCS 3.5 /
+    IDS 205). Alpha would drop to 2.45 but induced drag only rises to 8.4,
+    so the end speed moves by half a knot.
 - **#9** looks backwards at first glance (`max_load=0` while
   `sustained_load=2.11`), but it's expected: near stall, available lift
   collapses faster than the energy margin does, so structure (not thrust)
