@@ -263,8 +263,10 @@ don't apply there.
   drag, every card held level flight up to alt 310, where the engine
   charts end; with it, the band narrows with altitude, its slow edge moves
   above the stall where thrust can't cover the induced drag (the FJ-3M
-  from about alt 140), and the Swift's dry ceiling is alt 165. The chart
-  shows the dry and afterburner bands together.
+  from about alt 140), and every card's envelope closes below alt 300,
+  the top of the chart. Dry / afterburner ceilings: FJ-3M (17.4) 223 / --,
+  Swift (15.8) 165 / 226, J-6C (14) 214 / 269, Mirage F1C (20.5) 235 / 289.
+  The chart shows the dry and afterburner bands together.
 - **Turn rate is the physical level-turn rate**, not the old
   2 x load / FP rule of thumb: `turn_degrees()` takes the horizontal part
   of the load (1 G holds the aircraft up, so 3 loads or less doesn't turn)

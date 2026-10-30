@@ -10,6 +10,7 @@ classes) and only look names up at call time, so the import cycle is safe.
 
 from __future__ import annotations
 
+import functools
 import math
 
 import speedbop
@@ -42,12 +43,17 @@ STANDARD_GRAVITY_FT_S2 = 32.174
 FT_PER_S_PER_KNOT = 1.68781
 
 
+# The atmosphere functions are cached: a sweep across speed at one altitude
+# (the EM chart, the flight envelope) asks for the same ratios thousands of
+# times.
+@functools.lru_cache(maxsize=1024)
 def temperature_ratio(altitude: float) -> float:
     """Standard-atmosphere temperature ratio T/T0, constant above the tropopause."""
     feet = altitude * FEET_PER_ALTITUDE_UNIT
     return 1 - _LAPSE_PER_FT * min(feet, TROPOPAUSE_FT)
 
 
+@functools.lru_cache(maxsize=1024)
 def pressure_ratio(altitude: float) -> float:
     """Standard-atmosphere static pressure ratio p/p0."""
     feet = altitude * FEET_PER_ALTITUDE_UNIT
@@ -56,6 +62,7 @@ def pressure_ratio(altitude: float) -> float:
     return _TROPOPAUSE_PRESSURE_RATIO * math.exp(-_DECAY_PER_FT * (feet - TROPOPAUSE_FT))
 
 
+@functools.lru_cache(maxsize=1024)
 def density_ratio(altitude: float) -> float:
     """Standard-atmosphere density ratio rho/rho0."""
     return pressure_ratio(altitude) / temperature_ratio(altitude)

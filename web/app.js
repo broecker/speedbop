@@ -195,7 +195,7 @@ const PERFORMANCE_CELLS_MAX = 12;
 
 // Flight envelope chart: altitude axis, and how finely it's sampled. The
 // Mach axis runs to the aircraft's own top speed.
-const ENVELOPE_ALTITUDE_MAX = 200;
+const ENVELOPE_ALTITUDE_MAX = 300;
 const ENVELOPE_ALTITUDE_STEP = 5;
 // The envelope takes a few hundred milliseconds to compute, so it waits for
 // typing in the weight field to pause instead of running per keystroke.
@@ -516,12 +516,21 @@ function renderEnvelopeChart(container, envelope, emAltitude, now) {
     }
   }
 
-  // Stall and safe load don't depend on thrust; drawn where either band
-  // exists. The safe load can be out of reach at some altitudes, so it's
-  // drawn in runs.
+  // Stall and safe load don't depend on thrust. The stall line runs up to
+  // where it meets the slow edge of whichever band follows it highest --
+  // above that, thrust sets the slowest level speed in both bands. The safe
+  // load can be out of reach at some altitudes, so it's drawn in runs.
   const anyFlying = envelope.rows.filter((r) => modes.some((m) => r[m]));
-  const stallLine = anyFlying.length > 1
-    ? `<polyline class="stall-line" points="${coords(anyFlying.map((r) => ({ mach: r.stallMach, altitude: r.altitude })))}"></polyline>`
+  let stallTop = null;
+  for (const mode of modes) {
+    for (const r of envelope.rows) {
+      if (!r[mode] || Math.abs(r[mode].slowKtas - r.stallKtas) > 1e-6) break;
+      stallTop = Math.max(stallTop ?? r.altitude, r.altitude);
+    }
+  }
+  const stallRows = stallTop === null ? [] : anyFlying.filter((r) => r.altitude <= stallTop);
+  const stallLine = stallRows.length > 1
+    ? `<polyline class="stall-line" points="${coords(stallRows.map((r) => ({ mach: r.stallMach, altitude: r.altitude })))}"></polyline>`
     : "";
   let safeLoadLines = "";
   let safeRun = [];
@@ -537,9 +546,13 @@ function renderEnvelopeChart(container, envelope, emAltitude, now) {
   let dataLimit = "";
   if (envelope.dragDataMach < machMax) {
     const dx = x(envelope.dragDataMach).toFixed(1);
+    // Labelled up the line from the bottom, which stays clear of the
+    // ceiling labels at the top.
+    const lx = (x(envelope.dragDataMach) - 2).toFixed(1);
+    const ly = (padTop + plotH - 2).toFixed(1);
     dataLimit =
       `<line class="data-limit-line" x1="${dx}" y1="${padTop}" x2="${dx}" y2="${padTop + plotH}"></line>` +
-      `<text class="data-limit-label" x="${(x(envelope.dragDataMach) - 2).toFixed(1)}" y="${padTop + 6}" text-anchor="end">drag data ends</text>`;
+      `<text class="data-limit-label" x="${lx}" y="${ly}" transform="rotate(-90 ${lx} ${ly})">drag data ends</text>`;
   }
 
   // A ceiling is a dashed line across the chart, labelled just above the
@@ -563,10 +576,12 @@ function renderEnvelopeChart(container, envelope, emAltitude, now) {
   const rowNear = (rows, altitude) =>
     rows.reduce((a, b) => (Math.abs(b.altitude - altitude) < Math.abs(a.altitude - altitude) ? b : a));
   let labels = "";
-  if (anyFlying.length > 0) {
-    const stallRow = rowNear(anyFlying, clearOfEmLine(150));
+  if (stallRows.length > 1) {
+    const stallRow = rowNear(stallRows, clearOfEmLine(stallTop * 0.7));
     labels +=
       `<text class="stall-label" x="${(x(stallRow.stallMach) - 3).toFixed(1)}" y="${y(stallRow.altitude).toFixed(1)}" text-anchor="end">Stall</text>`;
+  }
+  if (anyFlying.length > 0) {
     const safeRow = rowNear(anyFlying, clearOfEmLine(100));
     if (safeRow.safeLoadMach !== null) {
       labels +=
