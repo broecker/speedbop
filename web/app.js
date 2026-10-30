@@ -193,6 +193,14 @@ const PERFORMANCE_KTAS_STEP = 10;
 const PERFORMANCE_LOAD_MAX = 32;
 const PERFORMANCE_CELLS_MAX = 12;
 
+// Flight envelope chart: altitude axis, and how finely it's sampled. The
+// Mach axis runs to the aircraft's own top speed.
+const ENVELOPE_ALTITUDE_MAX = 200;
+const ENVELOPE_ALTITUDE_STEP = 5;
+// The envelope takes a few hundred milliseconds to compute, so it waits for
+// typing in the weight field to pause instead of running per keystroke.
+const ENVELOPE_UPDATE_DELAY_MS = 200;
+
 function performanceAircraftEntry() {
   const path = document.getElementById("performance-aircraft-select").value;
   return aircraftManifest.find((entry) => entry.path === path);
@@ -225,10 +233,6 @@ function updatePerformanceScreen() {
   const afterburner = !toggle.disabled && toggle.checked;
   const fractional = document.getElementById("performance-fractional-toggle").checked;
 
-  // Read once and reuse -- adc.characteristics is a fresh PyProxy on every
-  // property access, so fetching it twice would create (and leak) two.
-  const characteristics = adc.characteristics;
-
   const ktasValues = [];
   for (let ktas = PERFORMANCE_KTAS_MIN; ktas <= PERFORMANCE_KTAS_MAX; ktas += PERFORMANCE_KTAS_STEP) {
     ktasValues.push(ktas);
@@ -254,10 +258,13 @@ function updatePerformanceScreen() {
       }
     : null;
   // The classic aerodynamic "corner speed" -- where max_load (lift-limited)
-  // reaches the airframe's structural G rating. Purely structural, unlike
-  // "best" above: it doesn't touch thrust/drag, so it's usually well past
-  // what the sustained curve can actually hold at that speed.
-  const cornerProxy = performanceModule.find_structural_corner_speed(profile, characteristics.combat_safe_load);
+  // reaches the safe load (the card's combat safe load, scaled for weight).
+  // Purely structural, unlike "best" above: it doesn't touch thrust/drag, so
+  // it's usually well past what the sustained curve can actually hold there.
+  const safeLoadState = speedbop.AircraftState(adc, weight, 0, altitude);
+  const safeLoad = safeLoadState.get_safe_load();
+  safeLoadState.destroy();
+  const cornerProxy = performanceModule.find_structural_corner_speed(profile, safeLoad);
   const structuralCorner = cornerProxy ? { ktas: cornerProxy.ktas, load: cornerProxy.load } : null;
 
   // This runs on every keystroke in the weight/altitude fields -- without
@@ -269,7 +276,6 @@ function updatePerformanceScreen() {
   bestRateProxy?.destroy();
   bestProxy?.destroy();
   profile.destroy();
-  characteristics.destroy();
   adc.destroy();
 
   const modeLabel = afterburner ? "AB" : "dry";
@@ -311,6 +317,345 @@ function updatePerformanceScreen() {
   renderSustainedTurnChart(
     document.getElementById("performance-chart"), points, best, bestRate, structuralCorner, currentState, fractional
   );
+  scheduleEnvelopeUpdate();
+}
+
+// ---------------------------------------------------------------------
+// Flight envelope chart
+// ---------------------------------------------------------------------
+
+// The last computed envelope and the inputs it was computed for -- the EM
+// chart's altitude and fractional fields don't change it, so editing those
+// only redraws.
+let envelopeCache = null;
+let envelopeTimer = null;
+
+function scheduleEnvelopeUpdate() {
+  clearTimeout(envelopeTimer);
+  envelopeTimer = setTimeout(guarded("Couldn't update the flight envelope", updateEnvelope), ENVELOPE_UPDATE_DELAY_MS);
+}
+
+function updateEnvelope() {
+  const entry = performanceAircraftEntry();
+  const weight = parseFloat(document.getElementById("performance-weight-input").value);
+  const emAltitude = parseInt(document.getElementById("performance-altitude-input").value, 10);
+  if (Number.isNaN(weight)) return;
+  const toggle = document.getElementById("performance-afterburner-toggle");
+  const afterburner = !toggle.disabled && toggle.checked;
+
+  const key = `${entry.path}|${weight}|${afterburner}`;
+  if (!envelopeCache || envelopeCache.key !== key) {
+    const adc = speedbop.AircraftDataCard.from_json(pathlib.Path(`adc/${entry.path}`));
+    const altitudes = [];
+    for (let altitude = 0; altitude <= ENVELOPE_ALTITUDE_MAX; altitude += ENVELOPE_ALTITUDE_STEP) {
+      altitudes.push(altitude);
+    }
+    const envelope = performanceModule.flight_envelope(adc, weight, altitudes, afterburner);
+    const rowsProxy = envelope.rows;
+    const rows = [];
+    for (const row of rowsProxy) {
+      // Python None arrives as undefined.
+      rows.push({
+        altitude: row.altitude,
+        stallKtas: row.stall_ktas ?? null,
+        stallMach: row.stall_mach ?? null,
+        safeLoadKtas: row.safe_load_ktas ?? null,
+        safeLoadMach: row.safe_load_mach ?? null,
+        topKtas: row.top_ktas ?? null,
+        topMach: row.top_mach ?? null,
+      });
+      row.destroy();
+    }
+    envelopeCache = {
+      key,
+      name: entry.name,
+      afterburner,
+      rows,
+      dragDataMach: envelope.drag_data_mach,
+      ceiling: envelope.ceiling ?? null,
+    };
+    rowsProxy.destroy();
+    envelope.destroy();
+    adc.destroy();
+  }
+
+  // Where the aircraft actually is, if opened from the turn screen.
+  const now = currentTurnKtas === null
+    ? null
+    : {
+        altitude: currentTurnAltitude,
+        mach: performanceModule.mach_from_ktas(currentTurnKtas, currentTurnAltitude),
+      };
+
+  document.getElementById("envelope-chart-caption").textContent = envelopeCaption(envelopeCache);
+  renderEnvelopeChart(document.getElementById("envelope-chart"), envelopeCache, emAltitude, now);
+}
+
+function envelopeCaption(envelope) {
+  const parts = [`Flight envelope, ${envelope.afterburner ? "AB" : "dry"} power`];
+  const flying = envelope.rows.filter((r) => r.stallMach !== null);
+  if (flying.length === 0) {
+    parts.push("no level flight at this weight");
+    return parts.join(" -- ");
+  }
+  const fastest = flying.reduce((a, b) => (b.topMach > a.topMach ? b : a));
+  parts.push(
+    `top speed M${fastest.topMach.toFixed(2)} (${Math.round(fastest.topKtas)} kt) at alt ${fastest.altitude}` +
+      (fastest.topMach > envelope.dragDataMach ? ", past the card's drag data" : "")
+  );
+  const lowest = flying[0];
+  parts.push(`stall M${lowest.stallMach.toFixed(2)} (${Math.round(lowest.stallKtas)} kt) at alt ${lowest.altitude}`);
+  parts.push(
+    envelope.ceiling === null
+      ? `level flight up to alt ${ENVELOPE_ALTITUDE_MAX}`
+      : `ceiling alt ${envelope.ceiling}`
+  );
+  return parts.join(" -- ");
+}
+
+// Splits a line of {mach, altitude} points (in altitude order) into the runs
+// on either side of mach = limit, so the part past it can be drawn in its own
+// style. The crossing point ends one run and starts the next.
+function splitAtMach(points, limit) {
+  const runs = [];
+  let run = null;
+  points.forEach((point, i) => {
+    const beyond = point.mach > limit;
+    if (run && run.beyond !== beyond) {
+      const prev = points[i - 1];
+      const t = (limit - prev.mach) / (point.mach - prev.mach);
+      const crossing = { mach: limit, altitude: prev.altitude + t * (point.altitude - prev.altitude) };
+      run.points.push(crossing);
+      run = { beyond, points: [crossing] };
+      runs.push(run);
+    } else if (!run) {
+      run = { beyond, points: [] };
+      runs.push(run);
+    }
+    run.points.push(point);
+  });
+  return runs;
+}
+
+function renderEnvelopeChart(container, envelope, emAltitude, now) {
+  const width = 300;
+  const height = 200;
+  const padLeft = 22;
+  const padRight = 10;
+  const padTop = 10;
+  const padBottom = 20;
+  const plotW = width - padLeft - padRight;
+  const plotH = height - padTop - padBottom;
+
+  const flying = envelope.rows.filter((r) => r.stallMach !== null);
+  // Mach 0 up to the fastest top speed anywhere on the chart, rounded up to
+  // the next tenth.
+  const fastest = Math.max(0, ...flying.map((r) => r.topMach));
+  const machMax = Math.max(0.5, Math.ceil(fastest * 10 - 1e-9) / 10);
+
+  const x = (mach) => padLeft + (mach / machMax) * plotW;
+  const y = (altitude) => padTop + plotH - (altitude / ENVELOPE_ALTITUDE_MAX) * plotH;
+  const coords = (points) => points.map((p) => `${x(p.mach).toFixed(1)},${y(p.altitude).toFixed(1)}`).join(" ");
+
+  let grid = "";
+  const machStep = machMax <= 1.2 ? 0.2 : machMax <= 2.5 ? 0.5 : 1;
+  for (let i = 1; i * machStep < machMax - 1e-9; i++) {
+    const gx = x(i * machStep).toFixed(1);
+    grid +=
+      `<line class="grid-line" x1="${gx}" y1="${padTop}" x2="${gx}" y2="${padTop + plotH}"></line>` +
+      `<text x="${gx}" y="${height - 4}" text-anchor="middle">${(i * machStep).toFixed(1)}</text>`;
+  }
+  for (let altitude = 50; altitude < ENVELOPE_ALTITUDE_MAX; altitude += 50) {
+    const gy = y(altitude).toFixed(1);
+    grid +=
+      `<line class="grid-line" x1="${padLeft}" y1="${gy}" x2="${padLeft + plotW}" y2="${gy}"></line>` +
+      `<text x="2" y="${(y(altitude) + 2.5).toFixed(1)}">${altitude}</text>`;
+  }
+  const axes =
+    `<line class="axis-line" x1="${padLeft}" y1="${padTop}" x2="${padLeft}" y2="${padTop + plotH}"></line>` +
+    `<line class="axis-line" x1="${padLeft}" y1="${padTop + plotH}" x2="${padLeft + plotW}" y2="${padTop + plotH}"></line>` +
+    `<text x="2" y="${padTop + plotH}">0</text>` +
+    `<text x="2" y="${padTop + 6}">${ENVELOPE_ALTITUDE_MAX}</text>` +
+    `<text x="${padLeft}" y="${height - 4}">M0</text>` +
+    `<text x="${padLeft + plotW}" y="${height - 4}" text-anchor="end">M${machMax.toFixed(1)}</text>`;
+
+  const stallPoints = flying.map((r) => ({ mach: r.stallMach, altitude: r.altitude }));
+  const topPoints = flying.map((r) => ({ mach: r.topMach, altitude: r.altitude }));
+
+  // The flyable region: up the stall line and back down the top speed line.
+  const fill = flying.length > 1
+    ? `<polygon class="envelope-fill" points="${coords([...stallPoints, ...topPoints.slice().reverse()])}"></polygon>`
+    : "";
+
+  // The safe load can be out of reach below some altitudes and not others,
+  // so it's drawn as separate runs wherever it exists.
+  let safeLoadLines = "";
+  let safeRun = [];
+  for (const r of [...flying, { safeLoadMach: null }]) {
+    if (r.safeLoadMach !== null) {
+      safeRun.push({ mach: r.safeLoadMach, altitude: r.altitude });
+      continue;
+    }
+    if (safeRun.length > 1) safeLoadLines += `<polyline class="safe-load-line" points="${coords(safeRun)}"></polyline>`;
+    safeRun = [];
+  }
+
+  // Past the card's last drag row the drag is held flat, so the top speed
+  // there is extrapolated: dashed, with the data's edge marked.
+  const topLines = splitAtMach(topPoints, envelope.dragDataMach)
+    .map((run) => `<polyline class="top-speed-line${run.beyond ? " extrapolated" : ""}" points="${coords(run.points)}"></polyline>`)
+    .join("");
+  let dataLimit = "";
+  if (envelope.dragDataMach < machMax) {
+    const dx = x(envelope.dragDataMach).toFixed(1);
+    dataLimit =
+      `<line class="data-limit-line" x1="${dx}" y1="${padTop}" x2="${dx}" y2="${padTop + plotH}"></line>` +
+      `<text class="data-limit-label" x="${(x(envelope.dragDataMach) - 2).toFixed(1)}" y="${padTop + 6}" text-anchor="end">drag data ends</text>`;
+  }
+
+  let ceiling = "";
+  if (envelope.ceiling !== null && envelope.ceiling <= ENVELOPE_ALTITUDE_MAX) {
+    const cy = y(envelope.ceiling).toFixed(1);
+    ceiling =
+      `<line class="ceiling-line" x1="${padLeft}" y1="${cy}" x2="${padLeft + plotW}" y2="${cy}"></line>` +
+      `<text class="stall-label" x="${padLeft + plotW - 2}" y="${(y(envelope.ceiling) - 2).toFixed(1)}" text-anchor="end">Ceiling: alt ${envelope.ceiling}</text>`;
+  }
+
+  // Call out each limit beside its own line, at altitudes where the three
+  // labels stay clear of one another.
+  const rowNear = (altitude) =>
+    flying.reduce((a, b) => (Math.abs(b.altitude - altitude) < Math.abs(a.altitude - altitude) ? b : a));
+  let labels = "";
+  if (flying.length > 0) {
+    const stallRow = rowNear(150);
+    labels +=
+      `<text class="stall-label" x="${(x(stallRow.stallMach) - 3).toFixed(1)}" y="${y(stallRow.altitude).toFixed(1)}" text-anchor="end">Stall</text>`;
+    const topRow = rowNear(20);
+    labels +=
+      `<text class="top-speed-label" x="${(x(topRow.topMach) - 3).toFixed(1)}" y="${y(topRow.altitude).toFixed(1)}" text-anchor="end">Engine: thrust = drag</text>`;
+    const safeRow = rowNear(100);
+    if (safeRow.safeLoadMach !== null) {
+      labels +=
+        `<text class="safe-load-label" x="${(x(safeRow.safeLoadMach) + 3).toFixed(1)}" y="${y(safeRow.altitude).toFixed(1)}">Safe load</text>`;
+    }
+  }
+
+  let emLine = "";
+  if (!Number.isNaN(emAltitude) && emAltitude >= 0 && emAltitude <= ENVELOPE_ALTITUDE_MAX) {
+    const ey = y(emAltitude).toFixed(1);
+    emLine =
+      `<line class="em-altitude-line" x1="${padLeft}" y1="${ey}" x2="${padLeft + plotW}" y2="${ey}"></line>` +
+      `<text class="em-altitude-label" x="${padLeft + 2}" y="${(y(emAltitude) - 2).toFixed(1)}">EM chart</text>`;
+  }
+
+  let nowMarker = "";
+  if (now && now.altitude >= 0 && now.altitude <= ENVELOPE_ALTITUDE_MAX && now.mach <= machMax) {
+    nowMarker =
+      `<circle class="now-ring" cx="${x(now.mach).toFixed(1)}" cy="${y(now.altitude).toFixed(1)}" r="3"></circle>` +
+      `<text class="now-label" x="${(x(now.mach) + 5).toFixed(1)}" y="${(y(now.altitude) + 2.5).toFixed(1)}">Now</text>`;
+  }
+
+  container.innerHTML =
+    `<svg viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">` +
+    grid +
+    fill +
+    axes +
+    dataLimit +
+    emLine +
+    ceiling +
+    `<polyline class="stall-line" points="${coords(stallPoints)}"></polyline>` +
+    safeLoadLines +
+    topLines +
+    labels +
+    nowMarker +
+    `<g class="crosshair hidden">` +
+    `<line class="crosshair-line" x1="${padLeft}" y1="0" x2="${padLeft + plotW}" y2="0"></line>` +
+    `<circle class="crosshair-dot stall-dot" r="2.6"></circle>` +
+    `<circle class="crosshair-dot safe-load-dot" r="2.6"></circle>` +
+    `<circle class="crosshair-dot top-speed-dot" r="2.6"></circle>` +
+    `</g>` +
+    `</svg>` +
+    `<div class="hover-target"></div>`;
+
+  wireEnvelopeChartInteractivity(container, envelope, { x, y, width, height, padTop, plotH });
+}
+
+function wireEnvelopeChartInteractivity(container, envelope, scale) {
+  const svg = container.querySelector("svg");
+  const hoverTarget = container.querySelector(".hover-target");
+  const crosshair = container.querySelector(".crosshair");
+  const crosshairLine = container.querySelector(".crosshair-line");
+  const dots = {
+    stall: container.querySelector(".stall-dot"),
+    safeLoad: container.querySelector(".safe-load-dot"),
+    top: container.querySelector(".top-speed-dot"),
+  };
+  const tooltip = document.getElementById("envelope-chart-tooltip");
+  const feetPerUnit = performanceModule.FEET_PER_ALTITUDE_UNIT;
+
+  function placeDot(dot, mach, py) {
+    dot.classList.toggle("hidden", mach === null);
+    if (mach === null) return;
+    dot.setAttribute("cx", scale.x(mach).toFixed(1));
+    dot.setAttribute("cy", py.toFixed(1));
+  }
+
+  function speed(mach, ktas) {
+    return `M${mach.toFixed(2)} (${Math.round(ktas)} kt)`;
+  }
+
+  function showTooltip(event) {
+    const rect = svg.getBoundingClientRect();
+    const svgX = ((event.clientX - rect.left) / rect.width) * scale.width;
+    const svgY = ((event.clientY - rect.top) / rect.height) * scale.height;
+    const frac = Math.min(Math.max((scale.padTop + scale.plotH - svgY) / scale.plotH, 0), 1);
+    const index = Math.round((frac * ENVELOPE_ALTITUDE_MAX) / ENVELOPE_ALTITUDE_STEP);
+    const row = envelope.rows[Math.min(envelope.rows.length - 1, Math.max(0, index))];
+    const py = scale.y(row.altitude);
+
+    crosshair.classList.remove("hidden");
+    crosshairLine.setAttribute("y1", py.toFixed(1));
+    crosshairLine.setAttribute("y2", py.toFixed(1));
+    placeDot(dots.stall, row.stallMach, py);
+    placeDot(dots.safeLoad, row.safeLoadMach, py);
+    placeDot(dots.top, row.topMach, py);
+
+    let body;
+    if (row.stallMach === null) {
+      body = "No level flight";
+    } else {
+      body =
+        `<span class="tt-stall">Stall: ${speed(row.stallMach, row.stallKtas)}</span><br>` +
+        `<span class="tt-safe-load">Safe load: ${row.safeLoadMach === null ? "not reached" : speed(row.safeLoadMach, row.safeLoadKtas)}</span><br>` +
+        `<span class="tt-top-speed">Top speed: ${speed(row.topMach, row.topKtas)}` +
+        `${row.topMach > envelope.dragDataMach ? " (extrapolated)" : ""}</span>`;
+    }
+    tooltip.innerHTML =
+      `<strong>Alt ${row.altitude} (${(row.altitude * feetPerUnit).toLocaleString()} ft)</strong>` + body;
+    tooltip.classList.remove("hidden");
+
+    // Keep the tooltip clear of both the pointer and the crosshair.
+    const rightHalf = svgX > scale.width / 2;
+    tooltip.style.left = rightHalf ? "8px" : "";
+    tooltip.style.right = rightHalf ? "" : "8px";
+    const upperHalf = py < scale.height / 2;
+    tooltip.style.top = upperHalf ? "auto" : "8px";
+    tooltip.style.bottom = upperHalf ? "24px" : "auto";
+  }
+
+  function hideTooltip(event) {
+    // As on the EM chart: touch keeps the tooltip up until another touch.
+    if (event && event.pointerType === "touch") return;
+    crosshair.classList.add("hidden");
+    tooltip.classList.add("hidden");
+  }
+
+  hoverTarget.addEventListener("pointerdown", (event) => {
+    hoverTarget.setPointerCapture(event.pointerId);
+    showTooltip(event);
+  });
+  hoverTarget.addEventListener("pointermove", showTooltip);
+  hoverTarget.addEventListener("pointerleave", hideTooltip);
 }
 
 function renderSustainedTurnChart(container, points, best, bestRate, structuralCorner, currentState, fractional) {
@@ -564,6 +909,7 @@ let performanceScreenOrigin = "setup-screen";
 // the setup-screen's standalone reference mode, where there's no active
 // flight to mark.
 let currentTurnKtas = null;
+let currentTurnAltitude = null;
 
 function setPerformanceScreenOrigin(origin) {
   performanceScreenOrigin = origin;
@@ -574,6 +920,7 @@ function setPerformanceScreenOrigin(origin) {
 document.getElementById("open-performance-screen-btn").addEventListener("click", guarded("Couldn't open performance screen", () => {
   setPerformanceScreenOrigin("setup-screen");
   currentTurnKtas = null;
+  currentTurnAltitude = null;
   initPerformanceAircraftFields();
   showScreen("performance-screen");
   updatePerformanceScreen();
@@ -588,6 +935,7 @@ document.getElementById("open-performance-screen-from-turn-btn").addEventListene
   const entry = currentAircraftEntry();
   const state = history.current_state;
   currentTurnKtas = state.ktas;
+  currentTurnAltitude = state.altitude;
   const adc = speedbop.AircraftDataCard.from_json(pathlib.Path(`adc/${entry.path}`));
 
   document.getElementById("performance-aircraft-select").value = entry.path;

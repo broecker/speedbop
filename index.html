@@ -9,7 +9,7 @@
      keep running behind a code fix pushed to main, since GitHub Pages sits
      behind a CDN that doesn't invalidate instantly and this project has no
      build step to fingerprint asset URLs automatically. -->
-<link rel="stylesheet" href="web/style.css?v=4">
+<link rel="stylesheet" href="web/style.css?v=5">
 </head>
 <body>
 
@@ -66,7 +66,7 @@
 <section id="performance-screen" class="screen hidden">
   <header class="top-bar">
     <h1>Aircraft Performance</h1>
-    <p class="subtitle">Sustained turn capability at a given altitude</p>
+    <p class="subtitle">Sustained turns at one altitude, and the flight envelope</p>
   </header>
   <main>
     <div class="field">
@@ -112,6 +112,19 @@
         <span><i class="legend-swatch sustained"></i> Sustained (energy-limited)</span>
         <span><i class="legend-swatch structural"></i> Max (lift-limited)</span>
         <span><i class="legend-swatch cells"></i> Turn rate (PHAD cells)</span>
+      </div>
+    </div>
+
+    <div class="panel-box chart-panel">
+      <p id="envelope-chart-caption" class="hint-line"></p>
+      <div class="chart-wrap">
+        <div id="envelope-chart"></div>
+        <div id="envelope-chart-tooltip" class="chart-tooltip hidden"></div>
+      </div>
+      <div class="chart-legend envelope-legend">
+        <span><i class="legend-swatch stall"></i> Stall: can't make 3 pulls</span>
+        <span><i class="legend-swatch safe-load"></i> Max load reaches safe load</span>
+        <span><i class="legend-swatch top-speed"></i> Top speed: thrust = drag</span>
       </div>
     </div>
 
@@ -218,6 +231,6 @@
 </section>
 
 <script src="https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.js"></script>
-<script type="module" src="web/app.js?v=16"></script>
+<script type="module" src="web/app.js?v=17"></script>
 </body>
 </html>

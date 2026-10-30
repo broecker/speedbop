@@ -1035,7 +1035,7 @@ def test_main_runs_and_prints_expected_values(capsys, monkeypatch):
     assert "Engine output: 56.7" in out
     assert "LCS: 5.6" in out
     assert "Max load: 35" in out
-    assert "Corner speed: 279" in out
+    assert "Corner speed: 266" in out
     assert "[Performance]" in out
     assert "Pulls:         22" in out
     # Swift Mk5 has an afterburner, resolve_turn() defaults afterburner=True,

@@ -26,6 +26,8 @@ method.
   PHAD cells turned.
 - **Departing flight (17)** -- run the turn procedure on either side of
   the limit and confirm the larger pull ends at 0 KTAS or less.
+- **Flight envelope (18)** -- check each boundary on either side: max load
+  for stall and safe load, and a straight 0-pull turn for the top speed.
 
 Every scenario below also lists **wing loading** (`get_wing_load()`) and
 **safe load** (`get_safe_load()`) as intermediate values, since both feed
@@ -52,11 +54,12 @@ don't apply there.
 | 10 | Sustained load, rising side | FJ-3M dry, weight 17.4, alt 75, 250kt | sustained_load=6.48, wing_load=58.0, safe_load=18.9 | Pull 6 loads for one turn, expect approximately 250kt after (speedbop: 253.7) | **Pass** -- end speed 252 vs 253.7 (-0.7%); two slips, see notes below |
 | 11 | Sustained load, at the peak | FJ-3M dry, weight 17.4, alt 75, 445kt | sustained_load=10.22 (curve's max, on the mach-0.72 table breakpoint), wing_load=58.0, safe_load=18.9 | Pull 10 loads, expect approximately 445kt after (speedbop: 445.9) | **Pass** -- end speed 445 vs 445.9 (-0.2%); smash read 4% high, see notes below |
 | 12 | Sustained load, declining/transonic side | FJ-3M dry, weight 17.4, alt 75, 520kt | sustained_load=6.73 (below the peak; 0 from ~546kt), wing_load=58.0, safe_load=18.9 | Pull 7 loads, expect approximately 520kt after (speedbop: 519.4) -- confirms the peak-and-decline is real, not a bug | **Pass with two slips** -- the pass read 456, but its own terms give 519.9 vs 519.4 (+0.1%) with induced drag and engine scaling corrected, see notes below |
-| 13 | Literature corner speed | FJ-3M, weight 17.4, combat_safe_load=21 | `corner_speed()` at the 485kt state: 246 KEAS (approximately 310 KTAS @ alt 75); EM chart's Corner marker: 350 KTAS; wing_load=58.0, safe_load=18.9 | ADC's stated G rating + slide rule solve | Not yet run |
+| 13 | Literature corner speed | FJ-3M, weight 17.4, combat_safe_load=21 (18.9 at this weight) | `corner_speed()` at the 485kt state: 234 KEAS (approximately 295 KTAS @ alt 75) against the weight-adjusted safe load of 18.9; the EM chart's Corner marker and the envelope's safe-load line: 328 KTAS at alt 75; wing_load=58.0, safe_load=18.9 | ADC's stated G rating + slide rule solve | Not yet run |
 | 14 | Sustained x lift-limited crossing ("Sustained" marker) | FJ-3M dry, weight 17.4, alt 75 | approximately 168 KTAS at 4 loads: in whole loads (as the chart shows both curves) sustained and max_load are both 4 from 152 to 168kt, then max_load steps to 5 at 169kt while sustained stays at 4 (precise sustained: 4.63); the app's marker, sampled every 10kt, reads 160kt / 4 loads with fractional loads off, and 157kt / 4.2 loads with them on (the default); wing_load=58.0, safe_load=18.9 | Confirm 4 loads is sustainable (holds speed) and the airframe allows 4 but not 5 loads just below 169kt | Not yet run |
 | 15 | Best sustained turn rate ("Best sustained rate" marker) | FJ-3M dry, weight 17.4, alt 75 | Fractional loads on (default): 1.70 cells @ 320kt, 8.05 loads (10kt samples) -- the rate is nearly flat from 250 to 340kt (1.67-1.70 cells), so E6B rounding picks the peak; at 1kt resolution it's 1.705 cells @ 297kt. Fractional loads off: 1 cell @ 160kt, 4 loads -- the slowest of the speeds holding 1 whole cell, which runs from 160kt (4 loads, lift-limited; sustained 4.22) to 480kt (9 loads, energy-limited; sustained 9.00); wing_load=58.0, safe_load=18.9 | Pull 4 loads at 160kt and 9 loads at 480kt: each should hold speed (speedbop: 162.9kt and 480.0kt after) and turn 1 cell (36.1 and 38.6 degrees) | Not yet run |
 | 16 | Level-turn rate (PHAD cells) | 9 loads (3 G) at 300 KTAS | 61.8 degrees in a 6s turn = 2.06 cells, 2 whole cells: turn rate = g x sqrt(G^2 - 1) / true airspeed, with 1 G holding the aircraft up; the 1091 x tan(bank) / KTAS pilot's rule gives the same | A played level turn, or the PHAD itself | Not yet run |
 | 17 | Departing flight | FJ-3M dry, weight 17.4, alt 75, 550kt | max_load=71, but a full turn ends at 0 KTAS at 59.7 loads (`departure_load()`): 68 pulls would end at -164kt and is refused; 59 pulls ends at 12.3kt, 60 at -6.0kt; the EM chart's turn rate stops following the lift limit there (from about 500kt at this weight and altitude) | Slide rule: pull 59 and 60 and confirm 60 ends at 0 KTAS or less | Not yet run |
+| 18 | Flight envelope at one altitude | FJ-3M dry, weight 17.4, alt 75 | Stall 133kt (M0.22): at 132kt, KEAS 105 / Q 3.7 / smash 0.6 make max load 2.86 -- under 3 pulls -- and at 133kt KEAS 106 / Q 3.8 / smash 0.7 make 3.34. Safe load (18.9) reached at 328kt (M0.53). Top speed 545kt (M0.89): at 543kt (Mach 0.88, drag row 0.88) engine dKTAS 36.5 beats form 34.9; at 545kt Mach 0.89 picks the 0.91 drag row and form 38.2 beats engine 36.6; wing_load=58.0, safe_load=18.9 | Slide rule: max load at 132 and 133kt; straight flight (0 pulls) at 543 and 545kt | Not yet run |
 
 ## Notes / flags
 
@@ -247,6 +250,17 @@ don't apply there.
   rounded down to whole loads, since pulls are whole numbers, and cells
   are rounded down to whole cells, since leftover degrees don't carry over
   to the next turn -- #10 would read 6.
+- **Safe load is adjusted for weight everywhere (2026-10)**: the EM
+  chart's corner marker and `corner_speed()` used the card's combat safe
+  load (21) directly, while the turn mechanics already scaled it by
+  combat weight / weight (18.9 at 17.4), as confirmed in #7. All three now
+  use the scaled value, so #13 moved from 246 to 234 KEAS and the corner
+  marker from 350 to 328 KTAS.
+- **The flight envelope has no ceiling below alt 200** for any card.
+  Straight flight takes no pulls, so it pays no induced drag, and form
+  drag near stall speed is tiny -- thrust beats it right up to alt 310,
+  where the engine charts end. A ceiling only appears if form drag at
+  stall speed outgrows the engine (e.g. a much heavier loadout).
 - **Turn rate is the physical level-turn rate**, not the old
   2 x load / FP rule of thumb: `turn_degrees()` takes the horizontal part
   of the load (1 G holds the aircraft up, so 3 loads or less doesn't turn)

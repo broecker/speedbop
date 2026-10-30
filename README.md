@@ -8,8 +8,8 @@ and `chart.py` into a mobile-first turn calculator.
 
 `speedbop.py` holds the data classes (aircraft data cards, aircraft state,
 turn results) and the turn-resolution mechanics. `performance.py` holds the
-E6B engine/airspeed conversions and the sustained-turn (EM chart) analysis
-behind the Aircraft Performance screen.
+E6B engine/airspeed conversions, and the sustained-turn (EM chart) and flight
+envelope analysis behind the Aircraft Performance screen.
 
 (GitHub's rendered README strips `<script>` tags, so `index.html` can't run
 inline on this page -- the link above points at the same file served

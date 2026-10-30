@@ -464,8 +464,8 @@ class BestSustainedTurnRate:
 @dataclass(frozen=True)
 class StructuralCornerPoint:
     """The classic aerodynamic "corner speed": the interpolated point where
-    the lift-limited max_load curve first reaches the aircraft's structural
-    G rating (combat_safe_load). Purely aerodynamic/structural -- unlike
+    the lift-limited max_load curve first reaches the aircraft's safe load
+    (combat_safe_load, adjusted for weight). Purely aerodynamic/structural -- unlike
     BestSustainedTurn, it doesn't touch thrust or drag at all, so it says
     nothing about whether that speed/G is actually sustainable. In fact it
     usually isn't: reaching it is typically a one-time, energy-spending
@@ -474,6 +474,45 @@ class StructuralCornerPoint:
 
     ktas: float
     load: float
+
+
+@dataclass(frozen=True)
+class EnvelopeRow:
+    """One altitude of a performance.flight_envelope(): the speeds that bound
+    straight and level flight there, as KTAS and unrounded Mach. All of them
+    are None where no speed holds level flight -- above the ceiling.
+    """
+
+    altitude: int
+    # The slowest speed where the wing can make 3 pulls (1 G); slower, the
+    # aircraft stalls.
+    stall_ktas: float | None
+    stall_mach: float | None
+    # The slowest speed where max load reaches the safe load: faster, a full
+    # pull overstresses the airframe. None if that's beyond the top speed.
+    safe_load_ktas: float | None
+    safe_load_mach: float | None
+    # The fastest speed reachable in straight and level flight, where thrust
+    # stops outrunning form drag.
+    top_ktas: float | None
+    top_mach: float | None
+
+    @property
+    def flies(self) -> bool:
+        return self.stall_ktas is not None
+
+
+@dataclass(frozen=True)
+class FlightEnvelope:
+    """performance.flight_envelope()'s result."""
+
+    rows: list[EnvelopeRow]
+    # The card's last form-drag row. Faster than this the drag stays at that
+    # row's value, so a top speed beyond it is extrapolated.
+    drag_data_mach: float
+    # The highest altitude, to the unit, where level flight is possible --
+    # None if the swept altitudes never go from flying to not flying.
+    ceiling: int | None
 
 
 @dataclass

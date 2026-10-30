@@ -26,6 +26,13 @@ _LAPSE_PER_FT = 6.87559e-6
 _DECAY_PER_FT = 4.80634e-5  # above the tropopause
 _TROPOPAUSE_PRESSURE_RATIO = (1 - _LAPSE_PER_FT * TROPOPAUSE_FT) ** 5.25588
 
+# The wing has to make 3 pulls (1 G) to hold the aircraft up in level
+# flight; slower than that it stalls (see flight_envelope()).
+STALL_LOAD = 3.0
+_ENVELOPE_SCAN_KTAS = 10.0
+_ENVELOPE_RESOLUTION_KTAS = 0.5
+_ENVELOPE_MAX_MACH = 3.0
+
 # Level-turn rate (see turn_degrees()): one game turn, the PHAD's heading
 # resolution, and the physics to get from a load to a heading change.
 GAME_TURN_SECONDS = 6.0
@@ -100,11 +107,22 @@ def ktas_from_q(q: float, altitude: float) -> float:
     return ktas_from_keas(keas_from_q(q), altitude)
 
 
+def mach_from_ktas(ktas: float, altitude: float) -> float:
+    """Unrounded Mach for a true airspeed, unlike AircraftState.get_mach()."""
+    return mach_from_keas(keas_from_ktas(ktas, altitude), altitude)
+
+
+def ktas_from_mach(mach: float, altitude: float) -> float:
+    """Inverse of mach_from_ktas()."""
+    keas = mach * SPEED_OF_SOUND_KT * math.sqrt(pressure_ratio(altitude))
+    return ktas_from_keas(keas, altitude)
+
+
 def corner_speed(state: speedbop.AircraftState) -> int:
     """Literature corner speed in KEAS: where the lift-limited load reaches
-    combat_safe_load, using this state's LCS and wing loading."""
+    the safe load, using this state's LCS, wing loading and weight."""
     alpha_over_lcs = state.adc.lift.alpha_max / state.get_lcs()
-    desired_smash = state.adc.characteristics.combat_safe_load / alpha_over_lcs
+    desired_smash = state.get_safe_load() / alpha_over_lcs
     desired_q = q_from_smash(desired_smash, state.get_wing_load())
     desired_keas = keas_from_q(desired_q)
     return math.floor(desired_keas)
@@ -310,22 +328,120 @@ def find_best_sustained_turn_rate(
 
 
 def find_structural_corner_speed(
-    points: list[speedbop.SustainedTurnPoint], combat_safe_load: float
+    points: list[speedbop.SustainedTurnPoint], safe_load: float
 ) -> speedbop.StructuralCornerPoint | None:
     """Linearly interpolates between the two profile points straddling
-    where max_load first reaches combat_safe_load, walking the list in the
-    order given (matching sustained_turn_profile()'s ascending-KTAS sweep).
+    where max_load first reaches safe_load (AircraftState.get_safe_load(),
+    adjusted for weight), walking the list in the order given (matching
+    sustained_turn_profile()'s ascending-KTAS sweep).
 
-    If max_load already meets combat_safe_load at the very first point (the
-    true crossing is below the swept range), that point is returned as-is
-    rather than extrapolating. Returns None if max_load never reaches
-    combat_safe_load across the swept range.
+    If max_load already meets safe_load at the very first point (the true
+    crossing is below the swept range), that point is returned as-is rather
+    than extrapolating. Returns None if max_load never reaches safe_load
+    across the swept range.
     """
     for prev, curr in zip(points, points[1:]):
-        if prev.max_load >= combat_safe_load:
-            return speedbop.StructuralCornerPoint(ktas=prev.ktas, load=combat_safe_load)
-        if curr.max_load >= combat_safe_load:
-            t = (combat_safe_load - prev.max_load) / (curr.max_load - prev.max_load)
+        if prev.max_load >= safe_load:
+            return speedbop.StructuralCornerPoint(ktas=prev.ktas, load=safe_load)
+        if curr.max_load >= safe_load:
+            t = (safe_load - prev.max_load) / (curr.max_load - prev.max_load)
             ktas = prev.ktas + t * (curr.ktas - prev.ktas)
-            return speedbop.StructuralCornerPoint(ktas=ktas, load=combat_safe_load)
+            return speedbop.StructuralCornerPoint(ktas=ktas, load=safe_load)
+    return None
+
+
+def flight_envelope(
+    adc: speedbop.AircraftDataCard,
+    weight: float,
+    altitudes: list[int],
+    afterburner: bool = True,
+) -> speedbop.FlightEnvelope:
+    """The speeds that bound straight and level flight at each altitude --
+    the data behind the flight envelope chart:
+
+    - stall: the slowest speed where the wing can make 3 pulls (1 G);
+    - safe load: the slowest speed where max load reaches the safe load, so
+      a full pull starts to overstress the airframe;
+    - top speed: the first speed, accelerating from stall, where engine
+      thrust no longer outruns form drag. Straight flight takes no pulls, so
+      there's no induced drag.
+
+    Each boundary is the first crossing of a coarse scan, bisected to half a
+    knot. Thrust that outruns drag again past that point (a transonic drag
+    bump) can't be reached in level flight, so only the first counts.
+
+    The ceiling is refined to the nearest altitude unit between the last
+    swept altitude that flies and the next one, which doesn't.
+    """
+    rows = [_envelope_row(adc, weight, altitude, afterburner) for altitude in altitudes]
+    ceiling = None
+    for below, above in zip(rows, rows[1:]):
+        if below.flies and not above.flies:
+            ceiling = below.altitude
+            for altitude in range(below.altitude + 1, above.altitude):
+                if not _envelope_row(adc, weight, altitude, afterburner).flies:
+                    break
+                ceiling = altitude
+            break
+    return speedbop.FlightEnvelope(
+        rows=rows,
+        drag_data_mach=max(float(mach) for mach in adc.form.mach_to_drag_table),
+        ceiling=ceiling,
+    )
+
+
+def _envelope_row(
+    adc: speedbop.AircraftDataCard, weight: float, altitude: int, afterburner: bool
+) -> speedbop.EnvelopeRow:
+    def state(ktas: float) -> speedbop.AircraftState:
+        return speedbop.AircraftState(adc, weight, ktas, altitude)
+
+    def lift(ktas: float) -> float:
+        return state(ktas).get_lift_limited_load()
+
+    def thrust_short(ktas: float) -> bool:
+        return _thrust_minus_form_delta_ktas(state(ktas), afterburner) < 0
+
+    limit = ktas_from_mach(_ENVELOPE_MAX_MACH, altitude)
+    stall = _first_speed(lambda ktas: lift(ktas) >= STALL_LOAD, 0.0, limit)
+    if stall is None or thrust_short(stall):
+        return speedbop.EnvelopeRow(altitude, None, None, None, None, None, None)
+    # Thrust still outrunning drag at the scan limit leaves the top speed
+    # there -- far past any card's drag data, so it's extrapolated anyway.
+    top = _first_speed(thrust_short, stall, limit) or limit
+    safe_load = state(stall).get_safe_load()
+    safe = _first_speed(lambda ktas: lift(ktas) >= safe_load, stall, top)
+
+    def mach(ktas: float | None) -> float | None:
+        return None if ktas is None else mach_from_ktas(ktas, altitude)
+
+    return speedbop.EnvelopeRow(
+        altitude=altitude,
+        stall_ktas=stall,
+        stall_mach=mach(stall),
+        safe_load_ktas=safe,
+        safe_load_mach=mach(safe),
+        top_ktas=top,
+        top_mach=mach(top),
+    )
+
+
+def _first_speed(predicate, low: float, high: float) -> float | None:
+    """The lowest KTAS in [low, high] where predicate holds: a coarse scan,
+    then bisection inside the first bracket that flips. None if it never
+    holds."""
+    if predicate(low):
+        return low
+    below = low
+    while below < high:
+        above = min(below + _ENVELOPE_SCAN_KTAS, high)
+        if predicate(above):
+            while above - below > _ENVELOPE_RESOLUTION_KTAS:
+                mid = (below + above) / 2
+                if predicate(mid):
+                    above = mid
+                else:
+                    below = mid
+            return above
+        below = above
     return None

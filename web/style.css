@@ -357,14 +357,16 @@ input:focus {
 }
 
 #engine-chart svg,
-#performance-chart svg {
+#performance-chart svg,
+#envelope-chart svg {
   width: 100%;
   height: auto;
   display: block;
 }
 
 #engine-chart text,
-#performance-chart text {
+#performance-chart text,
+#envelope-chart text {
   fill: var(--text-dim);
   font-size: 7px;
 }
@@ -385,7 +387,8 @@ input:focus {
 }
 
 #engine-chart .axis-line,
-#performance-chart .axis-line {
+#performance-chart .axis-line,
+#envelope-chart .axis-line {
   stroke: var(--border);
   stroke-width: 1;
 }
@@ -396,12 +399,14 @@ input:focus {
   position: relative;
 }
 
-#performance-chart {
+#performance-chart,
+#envelope-chart {
   width: 100%;
   position: relative;
 }
 
-#performance-chart .hover-target {
+#performance-chart .hover-target,
+#envelope-chart .hover-target {
   position: absolute;
   inset: 0;
   cursor: crosshair;
@@ -411,13 +416,15 @@ input:focus {
   user-select: none;
 }
 
-#performance-chart .crosshair-line {
+#performance-chart .crosshair-line,
+#envelope-chart .crosshair-line {
   stroke: var(--text-dim);
   stroke-width: 1;
   stroke-dasharray: 2 2;
 }
 
-#performance-chart .crosshair-dot {
+#performance-chart .crosshair-dot,
+#envelope-chart .crosshair-dot {
   stroke: var(--panel);
   stroke-width: 1;
 }
@@ -600,6 +607,127 @@ input:focus {
 
 .legend-swatch.cells {
   background: var(--success);
+}
+
+/* ---------- flight envelope chart ---------- */
+
+/* Same colours as the EM chart: red for the wing's lift, orange for the
+   airframe's safe load, blue for engine energy. */
+#envelope-chart .grid-line {
+  stroke: var(--border);
+  stroke-width: 0.5;
+  opacity: 0.6;
+}
+
+#envelope-chart .envelope-fill {
+  fill: var(--accent);
+  opacity: 0.08;
+}
+
+#envelope-chart .stall-line {
+  fill: none;
+  stroke: var(--danger);
+  stroke-width: 2;
+}
+
+#envelope-chart .safe-load-line {
+  fill: none;
+  stroke: var(--warning);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+}
+
+#envelope-chart .top-speed-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+#envelope-chart .top-speed-line.extrapolated {
+  stroke-dasharray: 3 3;
+  opacity: 0.7;
+}
+
+#envelope-chart .data-limit-line,
+#envelope-chart .em-altitude-line,
+#envelope-chart .ceiling-line {
+  stroke: var(--text-dim);
+  stroke-width: 1;
+  stroke-dasharray: 1 2;
+}
+
+#envelope-chart .ceiling-line {
+  stroke: var(--danger);
+}
+
+#envelope-chart .stall-label,
+#envelope-chart .safe-load-label,
+#envelope-chart .top-speed-label,
+#envelope-chart .now-label {
+  font-weight: 600;
+}
+
+#envelope-chart .stall-label {
+  fill: var(--danger);
+}
+
+#envelope-chart .safe-load-label {
+  fill: var(--warning);
+}
+
+#envelope-chart .top-speed-label {
+  fill: var(--accent);
+}
+
+#envelope-chart .now-ring {
+  fill: none;
+  stroke: var(--text);
+  stroke-width: 1.5;
+}
+
+#envelope-chart .now-label {
+  fill: var(--text);
+}
+
+#envelope-chart .crosshair-dot.stall-dot {
+  fill: var(--danger);
+}
+
+#envelope-chart .crosshair-dot.safe-load-dot {
+  fill: var(--warning);
+}
+
+#envelope-chart .crosshair-dot.top-speed-dot {
+  fill: var(--accent);
+}
+
+.chart-tooltip .tt-stall {
+  color: var(--danger);
+}
+
+.chart-tooltip .tt-safe-load {
+  color: var(--warning);
+}
+
+.chart-tooltip .tt-top-speed {
+  color: var(--accent);
+}
+
+.envelope-legend {
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+
+.legend-swatch.stall {
+  background: var(--danger);
+}
+
+.legend-swatch.safe-load {
+  background: var(--warning);
+}
+
+.legend-swatch.top-speed {
+  background: var(--accent);
 }
 
 /* ---------- buttons ---------- */

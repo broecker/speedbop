@@ -17,11 +17,14 @@ from performance import (
     find_best_sustained_turn,
     find_best_sustained_turn_rate,
     find_structural_corner_speed,
+    flight_envelope,
     keas_from_q,
     ktas_from_keas,
     ktas_from_q,
     keas_from_ktas,
+    ktas_from_mach,
     mach_from_keas,
+    mach_from_ktas,
     phad_cells_from_load,
     pressure_ratio,
     q_from_smash,
@@ -616,7 +619,7 @@ def test_find_structural_corner_speed_interpolates_the_crossing():
         _sustained_point(200.0, sustained_load=0.0, max_load=9.0),
     ]
 
-    corner = find_structural_corner_speed(points, combat_safe_load=7.0)
+    corner = find_structural_corner_speed(points, safe_load=7.0)
 
     assert isinstance(corner, StructuralCornerPoint)
     # max_load(100)=5, max_load(200)=9 -- 7 is 2/4 of the way there.
@@ -630,7 +633,7 @@ def test_find_structural_corner_speed_handles_exact_equality_at_a_sample_point()
         _sustained_point(200.0, sustained_load=0.0, max_load=9.0),
     ]
 
-    corner = find_structural_corner_speed(points, combat_safe_load=7.0)
+    corner = find_structural_corner_speed(points, safe_load=7.0)
 
     assert corner.ktas == pytest.approx(100.0)
     assert corner.load == pytest.approx(7.0)
@@ -645,7 +648,7 @@ def test_find_structural_corner_speed_returns_the_first_point_when_already_past_
         _sustained_point(200.0, sustained_load=0.0, max_load=20.0),
     ]
 
-    corner = find_structural_corner_speed(points, combat_safe_load=7.0)
+    corner = find_structural_corner_speed(points, safe_load=7.0)
 
     assert corner.ktas == pytest.approx(100.0)
     assert corner.load == pytest.approx(7.0)
@@ -657,7 +660,7 @@ def test_find_structural_corner_speed_returns_none_when_never_reached():
         _sustained_point(200.0, sustained_load=0.0, max_load=4.0),
     ]
 
-    assert find_structural_corner_speed(points, combat_safe_load=7.0) is None
+    assert find_structural_corner_speed(points, safe_load=7.0) is None
 
 
 def test_find_structural_corner_speed_on_a_real_profile():
@@ -670,6 +673,91 @@ def test_find_structural_corner_speed_on_a_real_profile():
     assert corner is not None
     assert 0 < corner.ktas < 600
     assert corner.load == pytest.approx(10.0)
+
+
+# ---------------------------------------------------------------------------
+# flight_envelope
+# ---------------------------------------------------------------------------
+
+def test_mach_from_ktas_inverts_ktas_from_mach():
+    for altitude in (0, 75, 200):
+        assert mach_from_ktas(ktas_from_mach(0.85, altitude), altitude) == pytest.approx(0.85)
+    # The E6B's own chain, before get_mach() rounds it to two decimals.
+    assert mach_from_ktas(445.0, 75) == pytest.approx(mach_from_keas(keas_from_ktas(445.0, 75), 75))
+
+
+def _first_whole_knot(predicate, start):
+    ktas = math.ceil(start)
+    while not predicate(ktas):
+        ktas += 1
+    return ktas
+
+
+def test_flight_envelope_matches_a_one_knot_scan_on_the_real_fj3m():
+    adc = AircraftDataCard.from_json(REAL_ADC_PATH)
+    envelope = flight_envelope(adc, weight=17.4, altitudes=[0, 75, 200], afterburner=False)
+
+    for row in envelope.rows:
+        def state(ktas):
+            return AircraftState(adc, weight=17.4, ktas=ktas, altitude=row.altitude)
+
+        def thrust_short(ktas):
+            s = state(ktas)
+            return s.get_engine_delta_ktas(s.get_engine_output(False)) - s.get_form_delta_ktas() < 0
+
+        # Stall: where the wing first makes 3 pulls (1 G).
+        stall = _first_whole_knot(lambda k: state(k).get_lift_limited_load() >= 3, 1)
+        # Safe load: 21 at combat weight 15.7, so 18.9 at 17.4.
+        safe = _first_whole_knot(lambda k: state(k).get_lift_limited_load() >= 18.9, stall)
+        top = _first_whole_knot(thrust_short, stall)
+
+        assert row.flies
+        assert row.stall_ktas == pytest.approx(stall, abs=1)
+        assert row.safe_load_ktas == pytest.approx(safe, abs=1)
+        assert row.top_ktas == pytest.approx(top, abs=1)
+        assert row.stall_mach == pytest.approx(mach_from_ktas(row.stall_ktas, row.altitude))
+        assert row.safe_load_mach == pytest.approx(mach_from_ktas(row.safe_load_ktas, row.altitude))
+        assert row.top_mach == pytest.approx(mach_from_ktas(row.top_ktas, row.altitude))
+
+    sea_level, _, high = envelope.rows
+    assert sea_level.stall_ktas < sea_level.safe_load_ktas < sea_level.top_ktas
+    # Stall holds a constant equivalent airspeed, so its true airspeed and
+    # Mach climb with altitude.
+    assert high.stall_mach > sea_level.stall_mach
+    assert envelope.drag_data_mach == pytest.approx(1.10)
+    assert envelope.ceiling is None
+
+
+def test_flight_envelope_finds_the_ceiling_to_the_unit():
+    # Heavy form drag: once the engine thins out with altitude, thrust can't
+    # even beat drag at the stall speed.
+    adc = make_adc(form=AircraftDataCard.Form(brake=0, mach_to_drag_table={0.5: 200}))
+    envelope = flight_envelope(adc, weight=17.4, altitudes=list(range(0, 101, 10)))
+
+    assert envelope.ceiling == 52
+    (at_ceiling,) = flight_envelope(adc, weight=17.4, altitudes=[52]).rows
+    (above,) = flight_envelope(adc, weight=17.4, altitudes=[53]).rows
+    assert at_ceiling.flies
+    assert not above.flies
+    assert (above.stall_ktas, above.safe_load_ktas, above.top_ktas) == (None, None, None)
+    assert [row.flies for row in envelope.rows] == [True] * 6 + [False] * 5
+    assert envelope.drag_data_mach == pytest.approx(0.5)
+
+
+def test_flight_envelope_has_no_safe_load_speed_past_the_top_speed():
+    # Form drag stops it early, long before the wing could reach a safe
+    # load this high.
+    adc = make_adc(
+        characteristics=AircraftDataCard.Characteristics(wing_area=2.0, combat_safe_load=1000.0),
+        form=AircraftDataCard.Form(brake=0, mach_to_drag_table={0.5: 100}),
+    )
+
+    (row,) = flight_envelope(adc, weight=17.4, altitudes=[0]).rows
+
+    assert row.flies
+    assert row.top_mach < 1
+    assert row.safe_load_ktas is None
+    assert row.safe_load_mach is None
 
 
 # ---------------------------------------------------------------------------
@@ -811,8 +899,10 @@ def test_inverse_helpers_round_trip_the_real_fixture_within_rounding_error():
 
 def test_corner_speed_on_the_real_fixture():
     # 22.4/3.8 alpha-over-LCS (the 485kt state's mach 0.79 reads the 0.84
-    # lift row), 21 combat safe load, 58.0 wing loading -> 246 KEAS.
+    # lift row), safe load 18.9 (21 at combat weight 15.7, scaled to 17.4),
+    # 58.0 wing loading -> 234 KEAS.
     adc = AircraftDataCard.from_json(REAL_ADC_PATH)
     state = make_state(adc=adc, weight=17.4, ktas=485.0, altitude=75)
 
-    assert corner_speed(state) == 246
+    assert state.get_safe_load() == pytest.approx(18.9)
+    assert corner_speed(state) == 234
