@@ -695,67 +695,111 @@ def _first_whole_knot(predicate, start):
 
 def test_flight_envelope_matches_a_one_knot_scan_on_the_real_fj3m():
     adc = AircraftDataCard.from_json(REAL_ADC_PATH)
-    envelope = flight_envelope(adc, weight=17.4, altitudes=[0, 75, 200], afterburner=False)
+    envelope = flight_envelope(adc, weight=17.4, altitudes=[0, 75, 200])
 
     for row in envelope.rows:
         def state(ktas):
             return AircraftState(adc, weight=17.4, ktas=ktas, altitude=row.altitude)
 
-        def thrust_short(ktas):
-            s = state(ktas)
-            return s.get_engine_delta_ktas(s.get_engine_output(False)) - s.get_form_delta_ktas() < 0
+        def holds_level(ktas):
+            return sustained_load(state(ktas), afterburner=False) >= 3
 
         # Stall: where the wing first makes 3 pulls (1 G).
         stall = _first_whole_knot(lambda k: state(k).get_lift_limited_load() >= 3, 1)
         # Safe load: 21 at combat weight 15.7, so 18.9 at 17.4.
         safe = _first_whole_knot(lambda k: state(k).get_lift_limited_load() >= 18.9, stall)
-        top = _first_whole_knot(thrust_short, stall)
+        # Level flight: where thrust covers form drag plus 3 pulls' induced drag.
+        slow = _first_whole_knot(holds_level, stall)
+        top = _first_whole_knot(lambda k: not holds_level(k), slow)
 
-        assert row.flies
         assert row.stall_ktas == pytest.approx(stall, abs=1)
         assert row.safe_load_ktas == pytest.approx(safe, abs=1)
-        assert row.top_ktas == pytest.approx(top, abs=1)
+        assert row.dry.slow_ktas == pytest.approx(slow, abs=1)
+        assert row.dry.top_ktas == pytest.approx(top, abs=1)
+        assert row.ab is None
         assert row.stall_mach == pytest.approx(mach_from_ktas(row.stall_ktas, row.altitude))
         assert row.safe_load_mach == pytest.approx(mach_from_ktas(row.safe_load_ktas, row.altitude))
-        assert row.top_mach == pytest.approx(mach_from_ktas(row.top_ktas, row.altitude))
+        assert row.dry.slow_mach == pytest.approx(mach_from_ktas(row.dry.slow_ktas, row.altitude))
+        assert row.dry.top_mach == pytest.approx(mach_from_ktas(row.dry.top_ktas, row.altitude))
 
     sea_level, _, high = envelope.rows
-    assert sea_level.stall_ktas < sea_level.safe_load_ktas < sea_level.top_ktas
-    # Stall holds a constant equivalent airspeed, so its true airspeed and
-    # Mach climb with altitude.
-    assert high.stall_mach > sea_level.stall_mach
+    assert sea_level.stall_ktas < sea_level.safe_load_ktas < sea_level.dry.top_ktas
+    # Low down the stall is the slow edge; at alt 200 thrust can't cover 3
+    # pulls' induced drag until well above it.
+    assert sea_level.dry.slow_ktas == pytest.approx(sea_level.stall_ktas)
+    assert high.dry.slow_ktas > high.stall_ktas + 50
     assert envelope.drag_data_mach == pytest.approx(1.10)
-    assert envelope.ceiling is None
+    assert not envelope.has_afterburner
+    assert (envelope.dry_ceiling, envelope.ab_ceiling) == (None, None)
+
+
+def test_level_flight_pays_induced_drag_for_3_pulls():
+    # The band's edges are where a straight turn with 3 pulls stops holding
+    # speed in calculate_performance() -- FJ-3M dry at alt 200, where the
+    # slow edge is set by thrust rather than the stall.
+    adc = AircraftDataCard.from_json(REAL_ADC_PATH)
+    (row,) = flight_envelope(adc, weight=17.4, altitudes=[200]).rows
+
+    def speed_change(ktas):
+        state = AircraftState(adc, weight=17.4, ktas=ktas, altitude=200)
+        return calculate_performance(state, segment_pulls=3, afterburner=False).new_state.ktas - ktas
+
+    assert speed_change(row.stall_ktas) < 0
+    assert speed_change(row.dry.slow_ktas) >= 0
+    assert speed_change(row.dry.top_ktas) < 0
+
+
+def test_flight_envelope_shows_dry_and_afterburner_bands():
+    adc = AircraftDataCard.from_json(REPO_ROOT / "adc" / "swift-mk5.json")
+    envelope = flight_envelope(adc, weight=15.8, altitudes=[0, 100, 165, 170, 200])
+
+    assert envelope.has_afterburner
+    # Dry thrust runs out of level flight at alt 165; afterburner doesn't
+    # within the chart.
+    assert (envelope.dry_ceiling, envelope.ab_ceiling) == (165, None)
+    rows = {row.altitude: row for row in envelope.rows}
+    for altitude in (0, 100, 165):
+        dry, ab = rows[altitude].dry, rows[altitude].ab
+        assert ab.slow_ktas <= dry.slow_ktas
+        assert ab.top_ktas > dry.top_ktas
+    for altitude in (170, 200):
+        assert rows[altitude].dry is None
+        assert rows[altitude].ab is not None
 
 
 def test_flight_envelope_finds_the_ceiling_to_the_unit():
-    # Heavy form drag: once the engine thins out with altitude, thrust can't
-    # even beat drag at the stall speed.
-    adc = make_adc(form=AircraftDataCard.Form(brake=0, mach_to_drag_table={0.5: 200}))
+    # Form drag plus 3 pulls outgrow the engine as it thins out with
+    # altitude. The fixture's engine chart covers alt 0-100.
+    adc = make_adc(
+        stores=AircraftDataCard.Stores(combat_weight=10.0),
+        form=AircraftDataCard.Form(brake=0, mach_to_drag_table={0.5: 20}),
+    )
     envelope = flight_envelope(adc, weight=17.4, altitudes=list(range(0, 101, 10)))
 
-    assert envelope.ceiling == 52
-    (at_ceiling,) = flight_envelope(adc, weight=17.4, altitudes=[52]).rows
-    (above,) = flight_envelope(adc, weight=17.4, altitudes=[53]).rows
-    assert at_ceiling.flies
-    assert not above.flies
-    assert (above.stall_ktas, above.safe_load_ktas, above.top_ktas) == (None, None, None)
-    assert [row.flies for row in envelope.rows] == [True] * 6 + [False] * 5
+    assert envelope.dry_ceiling == 22
+    (at_ceiling,) = flight_envelope(adc, weight=17.4, altitudes=[22]).rows
+    (above,) = flight_envelope(adc, weight=17.4, altitudes=[23]).rows
+    assert at_ceiling.dry is not None
+    assert above.dry is None
+    # The wing still makes 3 pulls up there; thrust is what runs out.
+    assert above.stall_ktas is not None
+    assert above.safe_load_ktas is None
+    assert [row.dry is not None for row in envelope.rows] == [True] * 3 + [False] * 8
+    assert envelope.ab_ceiling is None
     assert envelope.drag_data_mach == pytest.approx(0.5)
 
 
 def test_flight_envelope_has_no_safe_load_speed_past_the_top_speed():
-    # Form drag stops it early, long before the wing could reach a safe
-    # load this high.
+    # A safe load the wing can't reach before form drag ends level flight.
     adc = make_adc(
         characteristics=AircraftDataCard.Characteristics(wing_area=2.0, combat_safe_load=1000.0),
-        form=AircraftDataCard.Form(brake=0, mach_to_drag_table={0.5: 100}),
+        stores=AircraftDataCard.Stores(combat_weight=10.0),
+        form=AircraftDataCard.Form(brake=0, mach_to_drag_table={0.5: 20}),
     )
 
     (row,) = flight_envelope(adc, weight=17.4, altitudes=[0]).rows
 
-    assert row.flies
-    assert row.top_mach < 1
+    assert row.dry is not None
     assert row.safe_load_ktas is None
     assert row.safe_load_mach is None
 

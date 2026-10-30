@@ -9,7 +9,7 @@
      keep running behind a code fix pushed to main, since GitHub Pages sits
      behind a CDN that doesn't invalidate instantly and this project has no
      build step to fingerprint asset URLs automatically. -->
-<link rel="stylesheet" href="web/style.css?v=5">
+<link rel="stylesheet" href="web/style.css?v=6">
 </head>
 <body>
 
@@ -124,7 +124,8 @@
       <div class="chart-legend envelope-legend">
         <span><i class="legend-swatch stall"></i> Stall: can't make 3 pulls</span>
         <span><i class="legend-swatch safe-load"></i> Max load reaches safe load</span>
-        <span><i class="legend-swatch top-speed"></i> Top speed: thrust = drag</span>
+        <span><i class="legend-swatch thrust dry"></i> Level flight, dry thrust</span>
+        <span id="envelope-legend-ab"><i class="legend-swatch thrust ab"></i> Level flight, afterburner</span>
       </div>
     </div>
 
@@ -231,6 +232,6 @@
 </section>
 
 <script src="https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.js"></script>
-<script type="module" src="web/app.js?v=17"></script>
+<script type="module" src="web/app.js?v=18"></script>
 </body>
 </html>

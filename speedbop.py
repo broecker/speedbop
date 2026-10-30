@@ -477,29 +477,38 @@ class StructuralCornerPoint:
 
 
 @dataclass(frozen=True)
-class EnvelopeRow:
-    """One altitude of a performance.flight_envelope(): the speeds that bound
-    straight and level flight there, as KTAS and unrounded Mach. All of them
-    are None where no speed holds level flight -- above the ceiling.
+class LevelFlight:
+    """The band of speeds where an aircraft can hold straight and level
+    flight at one altitude and thrust setting: where it can sustain the 3
+    pulls (1 G) that hold it up. The slow edge is the stall, or higher where
+    thrust can't yet cover those pulls' induced drag; the top speed is where
+    form drag takes over.
     """
+
+    slow_ktas: float
+    slow_mach: float
+    top_ktas: float
+    top_mach: float
+
+
+@dataclass(frozen=True)
+class EnvelopeRow:
+    """One altitude of a performance.flight_envelope(), as KTAS and
+    unrounded Mach."""
 
     altitude: int
     # The slowest speed where the wing can make 3 pulls (1 G); slower, the
-    # aircraft stalls.
+    # aircraft stalls. None if it never can.
     stall_ktas: float | None
     stall_mach: float | None
     # The slowest speed where max load reaches the safe load: faster, a full
-    # pull overstresses the airframe. None if that's beyond the top speed.
+    # pull overstresses the airframe. None if level flight never gets there.
     safe_load_ktas: float | None
     safe_load_mach: float | None
-    # The fastest speed reachable in straight and level flight, where thrust
-    # stops outrunning form drag.
-    top_ktas: float | None
-    top_mach: float | None
-
-    @property
-    def flies(self) -> bool:
-        return self.stall_ktas is not None
+    # Level flight on dry thrust and with afterburner. None above that
+    # setting's ceiling -- and always for ab on a card without afterburner.
+    dry: LevelFlight | None
+    ab: LevelFlight | None
 
 
 @dataclass(frozen=True)
@@ -510,9 +519,11 @@ class FlightEnvelope:
     # The card's last form-drag row. Faster than this the drag stays at that
     # row's value, so a top speed beyond it is extrapolated.
     drag_data_mach: float
-    # The highest altitude, to the unit, where level flight is possible --
-    # None if the swept altitudes never go from flying to not flying.
-    ceiling: int | None
+    has_afterburner: bool
+    # The highest altitude, to the unit, where each thrust setting holds level
+    # flight -- None if the swept altitudes never go from flying to not.
+    dry_ceiling: int | None
+    ab_ceiling: int | None
 
 
 @dataclass

@@ -42,7 +42,7 @@ Usage:
 from __future__ import annotations
 
 import csv
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import json
 import pathlib
 
@@ -102,6 +102,8 @@ class IsobarChart:
     """A performance chart: a family of isobars over (altitude, mach)."""
 
     isobars: list[Isobar]
+    # Every isobar's mach at one altitude, by altitude -- see _slice_at().
+    _slices: dict = field(default_factory=dict, init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         if len(self.isobars) < 2:
@@ -144,10 +146,16 @@ class IsobarChart:
 
     def interpolate(self, altitude: float, mach: float) -> float:
         """Output value at (altitude, mach), clamped at the chart's edges."""
-        sliced = sorted((iso.mach_at(altitude), iso.output) for iso in self.isobars)
-        machs = [m for m, _ in sliced]
-        outputs = [o for _, o in sliced]
+        machs, outputs = self._slice_at(altitude)
         return _interp(mach, machs, outputs)
+
+    def _slice_at(self, altitude: float) -> tuple[list[float], list[float]]:
+        # Cached because a sweep across speed at one altitude (the EM chart,
+        # the flight envelope) asks for the same slice hundreds of times.
+        if altitude not in self._slices:
+            sliced = sorted((iso.mach_at(altitude), iso.output) for iso in self.isobars)
+            self._slices[altitude] = ([m for m, _ in sliced], [o for _, o in sliced])
+        return self._slices[altitude]
 
     def to_rows(self) -> list[dict]:
         """Every digitized point as a flat (output, altitude, mach) dict.

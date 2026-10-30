@@ -354,76 +354,128 @@ def flight_envelope(
     adc: speedbop.AircraftDataCard,
     weight: float,
     altitudes: list[int],
-    afterburner: bool = True,
 ) -> speedbop.FlightEnvelope:
-    """The speeds that bound straight and level flight at each altitude --
-    the data behind the flight envelope chart:
+    """The speeds that bound straight and level flight at each altitude, on
+    dry thrust and (if the card has it) with afterburner -- the data behind
+    the flight envelope chart:
 
     - stall: the slowest speed where the wing can make 3 pulls (1 G);
     - safe load: the slowest speed where max load reaches the safe load, so
       a full pull starts to overstress the airframe;
-    - top speed: the first speed, accelerating from stall, where engine
-      thrust no longer outruns form drag. Straight flight takes no pulls, so
-      there's no induced drag.
+    - level flight: the band of speeds where the aircraft can sustain those
+      3 pulls -- thrust covers their induced drag plus form drag
+      (sustained_load() of at least 3). Its slow edge is the stall, or higher
+      where thrust can't yet cover the induced drag; its top speed is where
+      form drag takes over.
 
     Each boundary is the first crossing of a coarse scan, bisected to half a
-    knot. Thrust that outruns drag again past that point (a transonic drag
-    bump) can't be reached in level flight, so only the first counts.
-
-    The ceiling is refined to the nearest altitude unit between the last
-    swept altitude that flies and the next one, which doesn't.
+    knot: a band that reopens past a drag bump can't be reached in level
+    flight. Each ceiling is refined to the unit between the last swept
+    altitude that flies and the next, and nothing above it is searched.
     """
-    rows = [_envelope_row(adc, weight, altitude, afterburner) for altitude in altitudes]
-    ceiling = None
-    for below, above in zip(rows, rows[1:]):
-        if below.flies and not above.flies:
-            ceiling = below.altitude
-            for altitude in range(below.altitude + 1, above.altitude):
-                if not _envelope_row(adc, weight, altitude, afterburner).flies:
-                    break
-                ceiling = altitude
-            break
+    drag_data_mach = max(float(mach) for mach in adc.form.mach_to_drag_table)
+    stalls = {altitude: _stall_speed(adc, weight, altitude) for altitude in altitudes}
+
+    bands: dict[bool, dict[int, speedbop.LevelFlight | None]] = {}
+    ceilings: dict[bool, int | None] = {False: None, True: None}
+    for afterburner in [False, True] if adc.ab_engine_output else [False]:
+        def level(altitude: int) -> speedbop.LevelFlight | None:
+            return _level_flight(adc, weight, altitude, afterburner, drag_data_mach, stalls.get(altitude))
+
+        bands[afterburner] = {}
+        flew = None
+        for altitude in altitudes:
+            if ceilings[afterburner] is not None:
+                bands[afterburner][altitude] = None
+                continue
+            band = level(altitude)
+            bands[afterburner][altitude] = band
+            if band is None and flew is not None:
+                ceiling = flew
+                for between in range(flew + 1, altitude):
+                    if between not in stalls:
+                        stalls[between] = _stall_speed(adc, weight, between)
+                    if level(between) is None:
+                        break
+                    ceiling = between
+                ceilings[afterburner] = ceiling
+            flew = altitude if band is not None else None
+
+    rows = []
+    for altitude in altitudes:
+        stall = stalls[altitude]
+        dry = bands[False][altitude]
+        ab = bands.get(True, {}).get(altitude)
+        widest = max((band.top_ktas for band in (dry, ab) if band is not None), default=None)
+        safe = None
+        if widest is not None:
+            safe_load = speedbop.AircraftState(adc, weight, stall, altitude).get_safe_load()
+            safe = _first_speed(
+                lambda ktas: speedbop.AircraftState(adc, weight, ktas, altitude).get_lift_limited_load() >= safe_load,
+                stall,
+                widest,
+            )
+        rows.append(
+            speedbop.EnvelopeRow(
+                altitude=altitude,
+                stall_ktas=stall,
+                stall_mach=_mach_or_none(stall, altitude),
+                safe_load_ktas=safe,
+                safe_load_mach=_mach_or_none(safe, altitude),
+                dry=dry,
+                ab=ab,
+            )
+        )
     return speedbop.FlightEnvelope(
         rows=rows,
-        drag_data_mach=max(float(mach) for mach in adc.form.mach_to_drag_table),
-        ceiling=ceiling,
+        drag_data_mach=drag_data_mach,
+        has_afterburner=bool(adc.ab_engine_output),
+        dry_ceiling=ceilings[False],
+        ab_ceiling=ceilings[True],
     )
 
 
-def _envelope_row(
-    adc: speedbop.AircraftDataCard, weight: float, altitude: int, afterburner: bool
-) -> speedbop.EnvelopeRow:
-    def state(ktas: float) -> speedbop.AircraftState:
-        return speedbop.AircraftState(adc, weight, ktas, altitude)
+def _stall_speed(adc: speedbop.AircraftDataCard, weight: float, altitude: int) -> float | None:
+    """The slowest speed where the wing can make 3 pulls."""
+    return _first_speed(
+        lambda ktas: speedbop.AircraftState(adc, weight, ktas, altitude).get_lift_limited_load() >= STALL_LOAD,
+        0.0,
+        ktas_from_mach(_ENVELOPE_MAX_MACH, altitude),
+    )
 
-    def lift(ktas: float) -> float:
-        return state(ktas).get_lift_limited_load()
 
-    def thrust_short(ktas: float) -> bool:
-        return _thrust_minus_form_delta_ktas(state(ktas), afterburner) < 0
+def _level_flight(
+    adc: speedbop.AircraftDataCard,
+    weight: float,
+    altitude: int,
+    afterburner: bool,
+    drag_data_mach: float,
+    stall: float | None,
+) -> speedbop.LevelFlight | None:
+    if stall is None:
+        return None
 
+    def holds(ktas: float) -> bool:
+        state = speedbop.AircraftState(adc, weight, ktas, altitude)
+        return sustained_load(state, afterburner) >= STALL_LOAD
+
+    # A band has to open within the card's drag data; once open, its top
+    # speed may run past it (extrapolated) up to the scan limit.
+    slow = _first_speed(holds, stall, ktas_from_mach(drag_data_mach, altitude))
+    if slow is None:
+        return None
     limit = ktas_from_mach(_ENVELOPE_MAX_MACH, altitude)
-    stall = _first_speed(lambda ktas: lift(ktas) >= STALL_LOAD, 0.0, limit)
-    if stall is None or thrust_short(stall):
-        return speedbop.EnvelopeRow(altitude, None, None, None, None, None, None)
-    # Thrust still outrunning drag at the scan limit leaves the top speed
-    # there -- far past any card's drag data, so it's extrapolated anyway.
-    top = _first_speed(thrust_short, stall, limit) or limit
-    safe_load = state(stall).get_safe_load()
-    safe = _first_speed(lambda ktas: lift(ktas) >= safe_load, stall, top)
-
-    def mach(ktas: float | None) -> float | None:
-        return None if ktas is None else mach_from_ktas(ktas, altitude)
-
-    return speedbop.EnvelopeRow(
-        altitude=altitude,
-        stall_ktas=stall,
-        stall_mach=mach(stall),
-        safe_load_ktas=safe,
-        safe_load_mach=mach(safe),
+    top = _first_speed(lambda ktas: not holds(ktas), slow, limit) or limit
+    return speedbop.LevelFlight(
+        slow_ktas=slow,
+        slow_mach=mach_from_ktas(slow, altitude),
         top_ktas=top,
-        top_mach=mach(top),
+        top_mach=mach_from_ktas(top, altitude),
     )
+
+
+def _mach_or_none(ktas: float | None, altitude: int) -> float | None:
+    return None if ktas is None else mach_from_ktas(ktas, altitude)
 
 
 def _first_speed(predicate, low: float, high: float) -> float | None:

@@ -27,7 +27,8 @@ method.
 - **Departing flight (17)** -- run the turn procedure on either side of
   the limit and confirm the larger pull ends at 0 KTAS or less.
 - **Flight envelope (18)** -- check each boundary on either side: max load
-  for stall and safe load, and a straight 0-pull turn for the top speed.
+  for stall and safe load, and a straight turn with 3 pulls for the level
+  flight band.
 
 Every scenario below also lists **wing loading** (`get_wing_load()`) and
 **safe load** (`get_safe_load()`) as intermediate values, since both feed
@@ -59,7 +60,7 @@ don't apply there.
 | 15 | Best sustained turn rate ("Best sustained rate" marker) | FJ-3M dry, weight 17.4, alt 75 | Fractional loads on (default): 1.70 cells @ 320kt, 8.05 loads (10kt samples) -- the rate is nearly flat from 250 to 340kt (1.67-1.70 cells), so E6B rounding picks the peak; at 1kt resolution it's 1.705 cells @ 297kt. Fractional loads off: 1 cell @ 160kt, 4 loads -- the slowest of the speeds holding 1 whole cell, which runs from 160kt (4 loads, lift-limited; sustained 4.22) to 480kt (9 loads, energy-limited; sustained 9.00); wing_load=58.0, safe_load=18.9 | Pull 4 loads at 160kt and 9 loads at 480kt: each should hold speed (speedbop: 162.9kt and 480.0kt after) and turn 1 cell (36.1 and 38.6 degrees) | Not yet run |
 | 16 | Level-turn rate (PHAD cells) | 9 loads (3 G) at 300 KTAS | 61.8 degrees in a 6s turn = 2.06 cells, 2 whole cells: turn rate = g x sqrt(G^2 - 1) / true airspeed, with 1 G holding the aircraft up; the 1091 x tan(bank) / KTAS pilot's rule gives the same | A played level turn, or the PHAD itself | Not yet run |
 | 17 | Departing flight | FJ-3M dry, weight 17.4, alt 75, 550kt | max_load=71, but a full turn ends at 0 KTAS at 59.7 loads (`departure_load()`): 68 pulls would end at -164kt and is refused; 59 pulls ends at 12.3kt, 60 at -6.0kt; the EM chart's turn rate stops following the lift limit there (from about 500kt at this weight and altitude) | Slide rule: pull 59 and 60 and confirm 60 ends at 0 KTAS or less | Not yet run |
-| 18 | Flight envelope at one altitude | FJ-3M dry, weight 17.4, alt 75 | Stall 133kt (M0.22): at 132kt, KEAS 105 / Q 3.7 / smash 0.6 make max load 2.86 -- under 3 pulls -- and at 133kt KEAS 106 / Q 3.8 / smash 0.7 make 3.34. Safe load (18.9) reached at 328kt (M0.53). Top speed 545kt (M0.89): at 543kt (Mach 0.88, drag row 0.88) engine dKTAS 36.5 beats form 34.9; at 545kt Mach 0.89 picks the 0.91 drag row and form 38.2 beats engine 36.6; wing_load=58.0, safe_load=18.9 | Slide rule: max load at 132 and 133kt; straight flight (0 pulls) at 543 and 545kt | Not yet run |
+| 18 | Flight envelope | FJ-3M dry, weight 17.4, alt 75 and alt 200 | Level flight means sustaining 3 pulls (1 G): thrust covers their induced drag plus form drag. Alt 75: stall 133kt (M0.22) -- at 132kt, KEAS 105 / Q 3.7 / smash 0.6 make max load 2.86, under 3 pulls; at 133kt KEAS 106 / Q 3.8 / smash 0.7 make 3.34. Safe load (18.9) reached at 328kt (M0.53). Top speed 545kt (M0.89): with 3 pulls at 545kt (Mach 0.88, drag row 0.88) induced 1.4 + form 34.9 < engine 36.5, so it holds speed; at 545.3kt Mach 0.89 picks the 0.91 drag row and form 38.2 takes over. Alt 200: the slow edge is thrust, not the stall (213kt): with 3 pulls at 312kt induced 9.2 + form 2.7 > engine 11.8, at 318kt 8.6 + 2.9 < 11.9; top speed 483kt; wing_load=58.0, safe_load=18.9 | Slide rule: max load at 132 and 133kt; a straight turn with 3 pulls at 545kt (alt 75), and at 312 and 318kt (alt 200) | Not yet run |
 
 ## Notes / flags
 
@@ -256,11 +257,14 @@ don't apply there.
   combat weight / weight (18.9 at 17.4), as confirmed in #7. All three now
   use the scaled value, so #13 moved from 246 to 234 KEAS and the corner
   marker from 350 to 328 KTAS.
-- **The flight envelope has no ceiling below alt 200** for any card.
-  Straight flight takes no pulls, so it pays no induced drag, and form
-  drag near stall speed is tiny -- thrust beats it right up to alt 310,
-  where the engine charts end. A ceiling only appears if form drag at
-  stall speed outgrows the engine (e.g. a much heavier loadout).
+- **Level flight pays induced drag for 3 pulls (2026-10)**: holding the
+  aircraft up takes 1 G, so the envelope's level-flight band is where it
+  can sustain 3 pulls (`sustained_load()` of at least 3). Without that
+  drag, every card held level flight up to alt 310, where the engine
+  charts end; with it, the band narrows with altitude, its slow edge moves
+  above the stall where thrust can't cover the induced drag (the FJ-3M
+  from about alt 140), and the Swift's dry ceiling is alt 165. The chart
+  shows the dry and afterburner bands together.
 - **Turn rate is the physical level-turn rate**, not the old
   2 x load / FP rule of thumb: `turn_degrees()` takes the horizontal part
   of the load (1 G holds the aircraft up, so 3 loads or less doesn't turn)
